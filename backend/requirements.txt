@@ -1,0 +1,9 @@
+Flask>=3.1.2
+Flask-CORS>=6.0.1
+PyMySQL>=1.1.2
+pandas>=2.3.2
+numpy>=1.24.0
+yfinance>=0.2.66
+python-dotenv>=1.1.1
+requests>=2.32.5
+cryptography>=46.0.0
