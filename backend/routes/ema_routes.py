@@ -91,7 +91,9 @@ def analyze_ema_trading_post():
                     'pnl': trade.pnl,
                     'pnl_percent': trade.pnl_percent,
                     'duration_days': trade.duration_days,
-                    'exit_reason': trade.exit_reason
+                    'exit_reason': trade.exit_reason,
+                    'is_reentry': trade.is_reentry,
+                    'reentry_count': trade.reentry_count
                 }
                 for trade in results.trades
             ],
@@ -195,7 +197,9 @@ def analyze_ema_trading(symbol):
                     'pnl': trade.pnl,
                     'pnl_percent': trade.pnl_percent,
                     'duration_days': trade.duration_days,
-                    'exit_reason': trade.exit_reason
+                    'exit_reason': trade.exit_reason,
+                    'is_reentry': trade.is_reentry,
+                    'reentry_count': trade.reentry_count
                 }
                 for trade in results.trades
             ],

@@ -44,6 +44,8 @@ class MATrade:
     pnl_percent: Optional[float]
     duration_days: Optional[int]
     exit_reason: Optional[str] = None  # 'MA_SIGNAL' or 'TRAILING_STOP'
+    is_reentry: bool = False  # True if this is a re-entry trade
+    reentry_count: int = 0  # Number of re-entries in this trend sequence
 
 @dataclass
 class MAResults:
@@ -154,11 +156,14 @@ class MATradingEngine:
         )
     
     def _generate_signals(self, df: pd.DataFrame) -> List[MASignal]:
-        """Generate Moving Average trading signals with trailing stop management"""
+        """Generate Enhanced Moving Average trading signals with re-entry logic"""
         signals = []
         in_trade = False
         current_trailing_stop = None
         highest_price_since_entry = None
+        last_exit_date = None
+        reentry_count = 0
+        trend_start_date = None
         
         # Start from max(ma_50_period, atr_period) to ensure both are calculated
         start_index = max(self.ma_50_period, self.atr_period)
@@ -174,29 +179,63 @@ class MATradingEngine:
             if pd.isna(ma_21) or pd.isna(ma_50) or pd.isna(atr):
                 continue
             
-            # BUY signal: Price closes above 50 MA (only if not in trade)
-            if not in_trade and current_price > ma_50:
-                # Check if this is a new signal (price closed below 50 MA in previous period)
-                if i > 0 and df.iloc[i-1]['close'] <= df.iloc[i-1]['ma_50']:
-                    confidence = min(0.9, abs(current_price - ma_50) / ma_50 * 10)
-                    # Set initial trailing stop
-                    current_trailing_stop = current_price - (atr * self.atr_multiplier)
-                    highest_price_since_entry = current_price
-                    
-                    signals.append(MASignal(
-                        date=date,
-                        signal_type='BUY',
-                        price=current_price,
-                        ma_21=ma_21,
-                        ma_50=ma_50,
-                        reasoning=f"Price {current_price:.2f} closed above 50 {self.ma_type.upper()} {ma_50:.2f}",
-                        confidence=confidence,
-                        atr=atr,
-                        trailing_stop=current_trailing_stop
-                    ))
-                    in_trade = True
+            # Check if we're in a new trend (price above 50 MA after being below)
+            is_new_trend = (not in_trade and 
+                           current_price > ma_50 and 
+                           i > 0 and 
+                           df.iloc[i-1]['close'] <= df.iloc[i-1]['ma_50'])
             
-            # Update trailing stop and check for sell signals (only if in trade)
+            # Check if we can re-enter (price above 21 MA after exit, with trend confirmation)
+            can_reenter = (not in_trade and 
+                          last_exit_date is not None and
+                          current_price > ma_21 and 
+                          ma_21 > ma_50 and  # Trend confirmation: 21 MA above 50 MA
+                          i > 0 and 
+                          df.iloc[i-1]['close'] <= df.iloc[i-1]['ma_21'])
+            
+            # ENTRY LOGIC
+            if is_new_trend:
+                # Primary entry: Price closes above 50 MA
+                confidence = min(0.9, abs(current_price - ma_50) / ma_50 * 10)
+                current_trailing_stop = current_price - (atr * self.atr_multiplier)
+                highest_price_since_entry = current_price
+                trend_start_date = date
+                reentry_count = 0
+                
+                signals.append(MASignal(
+                    date=date,
+                    signal_type='BUY',
+                    price=current_price,
+                    ma_21=ma_21,
+                    ma_50=ma_50,
+                    reasoning=f"Primary entry: Price {current_price:.2f} closed above 50 {self.ma_type.upper()} {ma_50:.2f}",
+                    confidence=confidence,
+                    atr=atr,
+                    trailing_stop=current_trailing_stop
+                ))
+                in_trade = True
+                
+            elif can_reenter:
+                # Re-entry: Price closes above 21 MA after exit
+                confidence = min(0.8, abs(current_price - ma_21) / ma_21 * 10)  # Slightly lower confidence
+                current_trailing_stop = current_price - (atr * self.atr_multiplier)
+                highest_price_since_entry = current_price
+                reentry_count += 1
+                
+                signals.append(MASignal(
+                    date=date,
+                    signal_type='BUY',
+                    price=current_price,
+                    ma_21=ma_21,
+                    ma_50=ma_50,
+                    reasoning=f"Re-entry #{reentry_count}: Price {current_price:.2f} closed above 21 {self.ma_type.upper()} {ma_21:.2f} (trend confirmed: 21 MA > 50 MA)",
+                    confidence=confidence,
+                    atr=atr,
+                    trailing_stop=current_trailing_stop
+                ))
+                in_trade = True
+            
+            # EXIT LOGIC (only if in trade)
             elif in_trade:
                 # Update highest price since entry
                 if highest_price_since_entry is None or current_price > highest_price_since_entry:
@@ -204,7 +243,7 @@ class MATradingEngine:
                     # Update trailing stop: highest price - (ATR * multiplier)
                     current_trailing_stop = highest_price_since_entry - (atr * self.atr_multiplier)
                 
-                # Check for SELL signals: Price below 21 MA OR below trailing stop
+                # Check for SELL signals
                 sell_triggered = False
                 sell_reason = ""
                 
@@ -217,6 +256,11 @@ class MATradingEngine:
                 elif current_trailing_stop is not None and current_price < current_trailing_stop:
                     sell_triggered = True
                     sell_reason = f"Price {current_price:.2f} hit trailing stop {current_trailing_stop:.2f}"
+                
+                elif current_price < ma_50:
+                    # Major trend break: Price below 50 MA
+                    sell_triggered = True
+                    sell_reason = f"Major trend break: Price {current_price:.2f} closed below 50 {self.ma_type.upper()} {ma_50:.2f}"
                 
                 if sell_triggered:
                     confidence = min(0.9, abs(current_price - ma_21) / ma_21 * 10)
@@ -232,16 +276,18 @@ class MATradingEngine:
                         trailing_stop=current_trailing_stop
                     ))
                     in_trade = False
+                    last_exit_date = date
                     current_trailing_stop = None
                     highest_price_since_entry = None
         
         return signals
     
     def _execute_trades(self, df: pd.DataFrame, signals: List[MASignal]) -> List[MATrade]:
-        """Execute trades based on signals using next day's open prices"""
+        """Execute trades based on signals using next day's open prices with re-entry logic"""
         trades = []
         current_position = None
         available_capital = self.initial_capital
+        reentry_count = 0
         
         # Create a mapping of dates to DataFrame indices for quick lookup
         date_to_index = {df.index[i]: i for i in range(len(df))}
@@ -252,16 +298,32 @@ class MATradingEngine:
                 signal_index = date_to_index.get(signal.date)
                 if signal_index is not None and signal_index + 1 < len(df):
                     next_day_open = df.iloc[signal_index + 1]['open']
-                    shares = int(available_capital / next_day_open)
+                    
+                    # Determine if this is a re-entry and adjust position size
+                    is_reentry = 'Re-entry' in signal.reasoning
+                    if is_reentry:
+                        reentry_count += 1
+                        # Use 50% of available capital for re-entries
+                        position_capital = available_capital * 0.5
+                    else:
+                        reentry_count = 0
+                        # Use full available capital for primary entries
+                        position_capital = available_capital
+                    
+                    shares = int(position_capital / next_day_open)
                     if shares > 0:
                         current_position = {
                             'entry_date': signal.date,
                             'entry_price': next_day_open,
                             'entry_signal': signal.reasoning,
-                            'shares': shares
+                            'shares': shares,
+                            'is_reentry': is_reentry,
+                            'reentry_count': reentry_count
                         }
                         available_capital -= shares * next_day_open
-                        logger.info(f"Opened BUY position: {shares} shares at ${next_day_open:.2f} (next day open)")
+                        
+                        entry_type = "Re-entry" if is_reentry else "Primary entry"
+                        logger.info(f"Opened {entry_type} BUY position: {shares} shares at ${next_day_open:.2f} (next day open)")
             
             elif signal.signal_type == 'SELL' and current_position is not None:
                 # Find the next day's open price for exit
@@ -274,7 +336,12 @@ class MATradingEngine:
                     duration = (signal.date - current_position['entry_date']).days
                     
                     # Determine exit reason
-                    exit_reason = 'TRAILING_STOP' if 'trailing stop' in signal.reasoning.lower() else 'MA_SIGNAL'
+                    if 'trailing stop' in signal.reasoning.lower():
+                        exit_reason = 'TRAILING_STOP'
+                    elif 'Major trend break' in signal.reasoning:
+                        exit_reason = 'TREND_BREAK'
+                    else:
+                        exit_reason = 'MA_SIGNAL'
                     
                     trade = MATrade(
                         entry_date=current_position['entry_date'],
@@ -287,13 +354,16 @@ class MATradingEngine:
                         pnl=pnl,
                         pnl_percent=pnl_percent,
                         duration_days=duration,
-                        exit_reason=exit_reason
+                        exit_reason=exit_reason,
+                        is_reentry=current_position['is_reentry'],
+                        reentry_count=current_position['reentry_count']
                     )
                     
                     trades.append(trade)
                     available_capital += shares * next_day_open
                     
-                    logger.info(f"Closed position: PnL ${pnl:.2f} ({pnl_percent:.2f}%) over {duration} days")
+                    exit_type = "Re-entry" if current_position['is_reentry'] else "Primary"
+                    logger.info(f"Closed {exit_type} position: PnL ${pnl:.2f} ({pnl_percent:.2f}%) over {duration} days")
                     current_position = None
         
         # Close any remaining position at the end
