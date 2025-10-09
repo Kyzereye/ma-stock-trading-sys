@@ -70,13 +70,20 @@ class MATradingEngine:
     - Supports both EMA and SMA
     """
     
-    def __init__(self, initial_capital: float = 100000, atr_period: int = 14, atr_multiplier: float = 2.0, ma_type: str = 'ema'):
+    def __init__(self, initial_capital: float = 100000, atr_period: int = 14, atr_multiplier: float = 2.0, ma_type: str = 'ema', custom_fast_ma: Optional[int] = None, custom_slow_ma: Optional[int] = None):
         self.initial_capital = initial_capital
-        self.ma_21_period = 21
-        self.ma_50_period = 50
         self.atr_period = atr_period
         self.atr_multiplier = atr_multiplier
         self.ma_type = ma_type.lower()  # 'ema' or 'sma'
+        
+        # Set MA periods - use custom values if provided, otherwise defaults
+        if custom_fast_ma and custom_slow_ma:
+            self.ma_21_period = custom_fast_ma
+            self.ma_50_period = custom_slow_ma
+        else:
+            # Default periods
+            self.ma_21_period = 21
+            self.ma_50_period = 50
         
     def calculate_ema(self, data: pd.Series, period: int) -> pd.Series:
         """Calculate Exponential Moving Average"""

@@ -7,8 +7,11 @@ Flask application for Moving Average trading analysis
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from routes.ema_routes import ema_bp
+from routes.optimization_routes import optimization_bp
+from routes.auth_routes import auth_bp
 from app_config import Config
 from utils.database import get_db_connection
+from services.email_service import init_mail
 import pandas as pd
 import logging
 
@@ -22,10 +25,19 @@ def create_app():
     app.config.from_object(Config)
     
     # Enable CORS for frontend
-    CORS(app, origins=['http://localhost:1111', 'http://127.0.0.1:1111'])
+    CORS(app, 
+         origins=['http://localhost:1111', 'http://127.0.0.1:1111'],
+         supports_credentials=True,
+         allow_headers=['Content-Type', 'Authorization'],
+         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+    
+    # Initialize email service
+    init_mail(app)
     
     # Register blueprints
     app.register_blueprint(ema_bp)
+    app.register_blueprint(optimization_bp)
+    app.register_blueprint(auth_bp)
     
     @app.route('/api/health')
     def health_check():
@@ -123,25 +135,10 @@ def create_app():
         except Exception as e:
             logger.error(f"Error getting stock data for {symbol}: {e}")
             return jsonify({'error': str(e)}), 500
-
-    @app.route('/api')
-    def api_info():
-        """API information endpoint"""
-        return jsonify({
-            'service': 'MA Stock Trading API',
-            'version': '1.0.0',
-            'endpoints': {
-                'health': '/api/health',
-                'stock_data': '/api/stocks/<symbol>',
-                'ema_analysis': '/api/ema/analyze/<symbol>',
-                'ema_signals': '/api/ema/signals/<symbol>',
-                'ema_summary': '/api/ema/summary/<symbol>'
-            }
-        })
     
     return app
 
 if __name__ == '__main__':
     app = create_app()
     logger.info("Starting MA Stock Trading Backend...")
-    app.run(host='0.0.0.0', port=2222, debug=True)
+    app.run(host='0.0.0.0', port=2222, debug=False)

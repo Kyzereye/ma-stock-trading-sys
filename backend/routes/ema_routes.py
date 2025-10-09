@@ -7,8 +7,7 @@ Provides endpoints for EMA trading analysis and backtesting
 
 from flask import Blueprint, request, jsonify
 from services.ema_trading import MATradingEngine
-from utils.database import get_db_connection
-import pandas as pd
+from utils.data_retrieval import get_stock_data
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,46 +26,10 @@ def analyze_ema_trading_post():
         atr_period = int(data.get('atr_period', 14))
         atr_multiplier = float(data.get('atr_multiplier', 2.0))
         
-        # Get data from database
-        conn = get_db_connection()
-        conn.connect()
-        cursor = conn.connection.cursor()
-        
-        if days > 0:
-            query = """
-            SELECT d.date, d.open, d.high, d.low, d.close, d.volume 
-            FROM daily_stock_data d
-            JOIN stock_symbols s ON d.symbol_id = s.id
-            WHERE s.symbol = %s 
-            ORDER BY d.date DESC 
-            LIMIT %s
-            """
-            cursor.execute(query, (symbol, days))
-        else:
-            query = """
-            SELECT d.date, d.open, d.high, d.low, d.close, d.volume 
-            FROM daily_stock_data d
-            JOIN stock_symbols s ON d.symbol_id = s.id
-            WHERE s.symbol = %s 
-            ORDER BY d.date DESC
-            """
-            cursor.execute(query, (symbol,))
-        
-        data = cursor.fetchall()
-        cursor.close()
-        conn.connection.close()
-        
-        if not data:
+        # Get data from database using shared method
+        df = get_stock_data(symbol, days)
+        if df is None:
             return jsonify({'error': f'No data found for symbol {symbol}'}), 404
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
-        df['date'] = pd.to_datetime(df['date'])
-        df = df.set_index('date').sort_index()
-        
-        # Convert price columns to float
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = df[col].astype(float)
         
         # Run EMA analysis
         engine = EMATradingEngine(initial_capital, atr_period, atr_multiplier)
@@ -134,45 +97,10 @@ def analyze_ema_trading(symbol):
         atr_multiplier = float(request.args.get('atr_multiplier', 2.0))
         ma_type = request.args.get('ma_type', 'ema').lower()  # 'ema' or 'sma'
         
-        # Get data from database
-        conn = get_db_connection()
-        conn.connect()
-        cursor = conn.connection.cursor()
-        
-        if days > 0:
-            query = """
-            SELECT d.date, d.open, d.high, d.low, d.close, d.volume 
-            FROM daily_stock_data d
-            JOIN stock_symbols s ON d.symbol_id = s.id
-            WHERE s.symbol = %s 
-            ORDER BY d.date DESC 
-            LIMIT %s
-            """
-            cursor.execute(query, (symbol.upper(), days))
-        else:
-            query = """
-            SELECT d.date, d.open, d.high, d.low, d.close, d.volume 
-            FROM daily_stock_data d
-            JOIN stock_symbols s ON d.symbol_id = s.id
-            WHERE s.symbol = %s 
-            ORDER BY d.date DESC
-            """
-            cursor.execute(query, (symbol.upper(),))
-        data = cursor.fetchall()
-        cursor.close()
-        conn.connection.close()
-        
-        if not data:
+        # Get data from database using shared method
+        df = get_stock_data(symbol, days)
+        if df is None:
             return jsonify({'error': f'No data found for symbol {symbol}'}), 404
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
-        df['date'] = pd.to_datetime(df['date'])
-        df = df.set_index('date').sort_index()
-        
-        # Convert price columns to float
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = df[col].astype(float)
         
         # Run Moving Average analysis
         engine = MATradingEngine(initial_capital, atr_period, atr_multiplier, ma_type)
@@ -235,45 +163,10 @@ def get_ema_signals(symbol):
     try:
         days = int(request.args.get('days', 100))
         
-        # Get data from database
-        conn = get_db_connection()
-        conn.connect()
-        cursor = conn.connection.cursor()
-        
-        if days > 0:
-            query = """
-            SELECT d.date, d.open, d.high, d.low, d.close, d.volume 
-            FROM daily_stock_data d
-            JOIN stock_symbols s ON d.symbol_id = s.id
-            WHERE s.symbol = %s 
-            ORDER BY d.date DESC 
-            LIMIT %s
-            """
-            cursor.execute(query, (symbol.upper(), days))
-        else:
-            query = """
-            SELECT d.date, d.open, d.high, d.low, d.close, d.volume 
-            FROM daily_stock_data d
-            JOIN stock_symbols s ON d.symbol_id = s.id
-            WHERE s.symbol = %s 
-            ORDER BY d.date DESC
-            """
-            cursor.execute(query, (symbol.upper(),))
-        data = cursor.fetchall()
-        cursor.close()
-        conn.connection.close()
-        
-        if not data:
+        # Get data from database using shared method
+        df = get_stock_data(symbol, days)
+        if df is None:
             return jsonify({'error': f'No data found for symbol {symbol}'}), 404
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
-        df['date'] = pd.to_datetime(df['date'])
-        df = df.set_index('date').sort_index()
-        
-        # Convert price columns to float
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = df[col].astype(float)
         
         # Run EMA analysis
         engine = EMATradingEngine(100000, 14, 2.0)
@@ -311,45 +204,10 @@ def get_ema_summary(symbol):
         initial_capital = float(request.args.get('initial_capital', 100000))
         days = int(request.args.get('days', 365))
         
-        # Get data from database
-        conn = get_db_connection()
-        conn.connect()
-        cursor = conn.connection.cursor()
-        
-        if days > 0:
-            query = """
-            SELECT d.date, d.open, d.high, d.low, d.close, d.volume 
-            FROM daily_stock_data d
-            JOIN stock_symbols s ON d.symbol_id = s.id
-            WHERE s.symbol = %s 
-            ORDER BY d.date DESC 
-            LIMIT %s
-            """
-            cursor.execute(query, (symbol.upper(), days))
-        else:
-            query = """
-            SELECT d.date, d.open, d.high, d.low, d.close, d.volume 
-            FROM daily_stock_data d
-            JOIN stock_symbols s ON d.symbol_id = s.id
-            WHERE s.symbol = %s 
-            ORDER BY d.date DESC
-            """
-            cursor.execute(query, (symbol.upper(),))
-        data = cursor.fetchall()
-        cursor.close()
-        conn.connection.close()
-        
-        if not data:
+        # Get data from database using shared method
+        df = get_stock_data(symbol, days)
+        if df is None:
             return jsonify({'error': f'No data found for symbol {symbol}'}), 404
-        
-        # Convert to DataFrame
-        df = pd.DataFrame(data, columns=['date', 'open', 'high', 'low', 'close', 'volume'])
-        df['date'] = pd.to_datetime(df['date'])
-        df = df.set_index('date').sort_index()
-        
-        # Convert price columns to float
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = df[col].astype(float)
         
         # Run EMA analysis
         engine = EMATradingEngine(initial_capital, 14, 2.0)
