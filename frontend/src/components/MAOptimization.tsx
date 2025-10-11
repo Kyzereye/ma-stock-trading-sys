@@ -26,6 +26,8 @@ import {
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:2222';
+
 interface OptimizationResult {
   fast_ma: number;
   slow_ma: number;
@@ -113,7 +115,7 @@ const MAOptimization: React.FC = () => {
   useEffect(() => {
     const fetchSymbols = async () => {
       try {
-        const response = await fetch('http://localhost:2222/api/symbols', {
+        const response = await fetch(`${API_URL}/api/symbols`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -160,7 +162,7 @@ const MAOptimization: React.FC = () => {
         ma_type: maType
       });
 
-      const response = await fetch(`http://localhost:2222/api/optimization/optimize/${symbol}?${params}`);
+      const response = await fetch(`${API_URL}/api/optimization/optimize/${symbol}?${params}`);
       const data = await response.json();
       
       if (!response.ok) {
@@ -190,7 +192,7 @@ const MAOptimization: React.FC = () => {
         ma_type: maType
       });
 
-      const response = await fetch(`http://localhost:2222/api/optimization/compare-pairs/${symbol}?${params}`);
+      const response = await fetch(`${API_URL}/api/optimization/compare-pairs/${symbol}?${params}`);
       const data = await response.json();
       
       if (!response.ok) {

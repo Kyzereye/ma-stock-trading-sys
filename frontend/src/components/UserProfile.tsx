@@ -22,6 +22,8 @@ import {
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:2222';
+
 interface UserProfileProps {
   open: boolean;
   onClose: () => void;
@@ -85,7 +87,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
     setMessage(null);
 
     try {
-      const response = await fetch('http://localhost:2222/api/auth/profile', {
+      const response = await fetch(`${API_URL}/api/auth/profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -132,7 +134,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
     setMessage(null);
 
     try {
-      const response = await fetch('http://localhost:2222/api/auth/change-password', {
+      const response = await fetch(`${API_URL}/api/auth/change-password`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -166,7 +168,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
     setMessage(null);
 
     try {
-      const response = await fetch('http://localhost:2222/api/auth/preferences', {
+      const response = await fetch(`${API_URL}/api/auth/preferences`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

@@ -24,6 +24,8 @@ import {
 import { createChart, IChartApi, ISeriesApi, CandlestickData, LineData, Time } from 'lightweight-charts';
 import { useAuth } from '../contexts/AuthContext';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:2222';
+
 interface EMASignal {
   date: string;
   signal_type: 'BUY' | 'SELL';
@@ -100,7 +102,7 @@ const EMATrading: React.FC = () => {
   useEffect(() => {
     const fetchSymbols = async () => {
       try {
-        const response = await fetch('http://localhost:2222/api/symbols', {
+        const response = await fetch(`${API_URL}/api/symbols`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -139,7 +141,7 @@ const EMATrading: React.FC = () => {
 
     try {
       const response = await fetch(
-        `http://localhost:2222/api/ema/analyze/${symbol.toUpperCase()}?initial_capital=${initialCapital}&days=${days}&atr_period=${atrPeriod}&atr_multiplier=${atrMultiplier}&ma_type=${maType}`
+        `${API_URL}/api/ema/analyze/${symbol.toUpperCase()}?initial_capital=${initialCapital}&days=${days}&atr_period=${atrPeriod}&atr_multiplier=${atrMultiplier}&ma_type=${maType}`
       );
       
       if (!response.ok) {
@@ -248,7 +250,7 @@ const EMATrading: React.FC = () => {
     if (!symbol || !results) return;
 
     try {
-      const response = await fetch(`http://localhost:2222/api/stocks/${symbol}?days=${days}&include_ema=true&ma_type=${maType}`);
+      const response = await fetch(`${API_URL}/api/stocks/${symbol}?days=${days}&include_ema=true&ma_type=${maType}`);
       const data = await response.json();
       
       if (data.success) {

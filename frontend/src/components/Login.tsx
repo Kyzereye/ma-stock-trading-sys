@@ -10,14 +10,16 @@ import {
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:2222';
+
 interface LoginProps {
   onSwitchToRegister: () => void;
 }
 
 const Login: React.FC<LoginProps> = ({ onSwitchToRegister }) => {
   const { login } = useAuth();
-  const [email, setEmail] = useState('kyzereye@gmail.com');
-  const [password, setPassword] = useState('1qazxsw2!QAZ');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showResendButton, setShowResendButton] = useState(false);
@@ -48,7 +50,7 @@ const Login: React.FC<LoginProps> = ({ onSwitchToRegister }) => {
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:2222/api/auth/resend-verification', {
+      const response = await fetch(`${API_URL}/api/auth/resend-verification`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

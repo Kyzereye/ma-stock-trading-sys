@@ -10,6 +10,8 @@ import {
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:2222';
+
 interface EmailVerificationProps {
   token: string;
   onComplete: () => void;
@@ -29,7 +31,7 @@ const EmailVerification: React.FC<EmailVerificationProps> = ({ token, onComplete
       hasVerified.current = true;
 
       try {
-        const response = await fetch(`http://localhost:2222/api/auth/verify-email/${token}`);
+        const response = await fetch(`${API_URL}/api/auth/verify-email/${token}`);
         const data = await response.json();
 
         if (data.success) {
