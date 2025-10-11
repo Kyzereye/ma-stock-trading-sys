@@ -18,7 +18,8 @@ import {
   CircularProgress,
   Tabs,
   Tab,
-  LinearProgress
+  LinearProgress,
+  Autocomplete
 } from '@mui/material';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, LineData, Time } from 'lightweight-charts';
 import { useAuth } from '../contexts/AuthContext';
@@ -73,9 +74,10 @@ interface EMAResults {
 }
 
 const EMATrading: React.FC = () => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   
-  const [symbol, setSymbol] = useState('AAPL');
+  const [symbol, setSymbol] = useState('');
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
   const [initialCapital, setInitialCapital] = useState(user?.preferences.default_initial_capital || 100000);
   const [days, setDays] = useState(user?.preferences.default_days || 365);
   const [atrPeriod, setAtrPeriod] = useState(user?.preferences.default_atr_period || 14);
@@ -93,6 +95,26 @@ const EMATrading: React.FC = () => {
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const ema21SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const ema50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+
+  // Fetch available symbols on mount
+  useEffect(() => {
+    const fetchSymbols = async () => {
+      try {
+        const response = await fetch('http://localhost:2222/api/symbols', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const data = await response.json();
+        if (data.symbols) {
+          setAvailableSymbols(data.symbols);
+        }
+      } catch (error) {
+        console.error('Failed to fetch symbols:', error);
+      }
+    };
+    fetchSymbols();
+  }, [token]);
 
   // Update parameters when user preferences change
   useEffect(() => {
@@ -244,40 +266,41 @@ const EMATrading: React.FC = () => {
       return;
     }
 
-    // Prepare candlestick data
+    // Prepare candlestick data - extract date only (YYYY-MM-DD)
     const candlestickData: CandlestickData[] = stockData
       .map((data) => ({
-        time: (new Date(data.date).getTime() / 1000) as Time,
+        time: data.date.split('T')[0] as Time,  // Strip time portion
         open: parseFloat(data.open),
         high: parseFloat(data.high),
         low: parseFloat(data.low),
         close: parseFloat(data.close),
       }))
-      .sort((a, b) => (a.time as number) - (b.time as number));
+      .sort((a, b) => (a.time as string).localeCompare(b.time as string));
 
     // Prepare Moving Average data
     const ma21Data: LineData[] = stockData
       .filter(data => data.ma_21 !== null && data.ma_21 !== undefined)
       .map((data) => ({
-        time: (new Date(data.date).getTime() / 1000) as Time,
+        time: data.date.split('T')[0] as Time,  // Strip time portion
         value: parseFloat(data.ma_21),
       }))
-      .sort((a, b) => (a.time as number) - (b.time as number));
+      .sort((a, b) => (a.time as string).localeCompare(b.time as string));
 
     const ma50Data: LineData[] = stockData
       .filter(data => data.ma_50 !== null && data.ma_50 !== undefined)
       .map((data) => ({
-        time: (new Date(data.date).getTime() / 1000) as Time,
+        time: data.date.split('T')[0] as Time,  // Strip time portion
         value: parseFloat(data.ma_50),
       }))
-      .sort((a, b) => (a.time as number) - (b.time as number));
+      .sort((a, b) => (a.time as string).localeCompare(b.time as string));
 
-    // Prepare signal markers
+    // Prepare signal markers - extract date only (YYYY-MM-DD)
     const signalMarkers: any[] = [];
     if (results && results.signals) {
       results.signals.forEach(signal => {
+        const dateStr = signal.date.includes('T') ? signal.date.split('T')[0] : signal.date;
         const marker = {
-          time: (new Date(signal.date).getTime() / 1000) as Time,
+          time: dateStr as Time,
           position: signal.signal_type === 'BUY' ? 'belowBar' as const : 'aboveBar' as const,
           color: signal.signal_type === 'BUY' ? '#00ff00' : '#ff0000',
           shape: signal.signal_type === 'BUY' ? 'arrowUp' as const : 'arrowDown' as const,
@@ -319,13 +342,13 @@ const EMATrading: React.FC = () => {
 
   // Update chart when data changes
   useEffect(() => {
-    if (stockData.length > 0 && activeTab === 3) {
+    if (stockData.length > 0 && results && activeTab === 3) {
       // Add a small delay to ensure chart is ready
       setTimeout(() => {
         updateChart();
       }, 100);
     }
-  }, [stockData, activeTab]);
+  }, [stockData, results, activeTab]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -342,12 +365,30 @@ const EMATrading: React.FC = () => {
         <CardContent>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
             <Box sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-              <TextField
-                fullWidth
-                label="Stock Symbol"
+              <Autocomplete
+                freeSolo
+                openOnFocus={false}
+                options={availableSymbols}
                 value={symbol}
-                onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-                placeholder="e.g., AAPL"
+                onChange={(event, newValue) => {
+                  setSymbol(newValue ? newValue.toUpperCase() : '');
+                }}
+                onInputChange={(event, newInputValue) => {
+                  setSymbol(newInputValue.toUpperCase());
+                }}
+                filterOptions={(options, { inputValue }) => {
+                  if (!inputValue) return [];
+                  return options.filter((option) =>
+                    option.toUpperCase().startsWith(inputValue.toUpperCase())
+                  );
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Stock Symbol"
+                    placeholder="e.g., AAPL"
+                  />
+                )}
               />
             </Box>
             <Box sx={{ flex: '1 1 200px', minWidth: '200px' }}>

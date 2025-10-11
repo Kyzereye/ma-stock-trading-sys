@@ -48,6 +48,30 @@ def create_app():
             'version': '1.0.0'
         })
     
+    @app.route('/api/symbols')
+    def get_symbols():
+        """Get all available stock symbols"""
+        try:
+            conn = get_db_connection()
+            conn.connect()
+            cursor = conn.connection.cursor()
+            
+            cursor.execute("SELECT symbol FROM stock_symbols ORDER BY symbol")
+            symbols = cursor.fetchall()
+            cursor.close()
+            conn.connection.close()
+            
+            symbol_list = [row['symbol'] for row in symbols]
+            
+            return jsonify({
+                'success': True,
+                'symbols': symbol_list
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting symbols: {e}")
+            return jsonify({'error': str(e)}), 500
+    
     @app.route('/api/stocks/<symbol>')
     def get_stock_data(symbol):
         """Get stock data for charting"""
@@ -66,7 +90,7 @@ def create_app():
                 FROM daily_stock_data d
                 JOIN stock_symbols s ON d.symbol_id = s.id
                 WHERE s.symbol = %s 
-                ORDER BY d.date ASC 
+                ORDER BY d.date DESC 
                 LIMIT %s
                 """
                 cursor.execute(query, (symbol.upper(), days))
@@ -76,7 +100,7 @@ def create_app():
                 FROM daily_stock_data d
                 JOIN stock_symbols s ON d.symbol_id = s.id
                 WHERE s.symbol = %s 
-                ORDER BY d.date ASC
+                ORDER BY d.date DESC
                 """
                 cursor.execute(query, (symbol.upper(),))
             

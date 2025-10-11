@@ -98,8 +98,20 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
 
       if (data.success) {
         setMessage({ type: 'success', text: 'Profile updated successfully!' });
-        // Reload user data
-        window.location.reload();
+        
+        // Update user data in localStorage
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+          const userData = JSON.parse(storedUser);
+          if (name) userData.name = name;
+          if (email) userData.email = email;
+          localStorage.setItem('user', JSON.stringify(userData));
+        }
+        
+        // Reload page to refresh context
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to update profile' });
       }

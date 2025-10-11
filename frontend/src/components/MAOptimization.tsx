@@ -21,7 +21,8 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Autocomplete
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -85,7 +86,7 @@ function a11yProps(index: number) {
 }
 
 const MAOptimization: React.FC = () => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -93,7 +94,8 @@ const MAOptimization: React.FC = () => {
   const [results, setResults] = useState<OptimizationResponse | null>(null);
   
   // Optimization parameters
-  const [symbol, setSymbol] = useState('AAPL');
+  const [symbol, setSymbol] = useState('');
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
   const [days, setDays] = useState(user?.preferences.default_days || 365);
   const [fastRange, setFastRange] = useState({ min: 10, max: 20 });
   const [slowRange, setSlowRange] = useState({ min: 20, max: 50 });
@@ -106,6 +108,26 @@ const MAOptimization: React.FC = () => {
   // Comparison parameters
   const [comparePairs, setComparePairs] = useState('10,20|21,50|30,60');
   const [compareResults, setCompareResults] = useState<any>(null);
+
+  // Fetch available symbols on mount
+  useEffect(() => {
+    const fetchSymbols = async () => {
+      try {
+        const response = await fetch('http://localhost:2222/api/symbols', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const data = await response.json();
+        if (data.symbols) {
+          setAvailableSymbols(data.symbols);
+        }
+      } catch (error) {
+        console.error('Failed to fetch symbols:', error);
+      }
+    };
+    fetchSymbols();
+  }, [token]);
 
   // Update parameters when user preferences change
   useEffect(() => {
@@ -218,11 +240,29 @@ const MAOptimization: React.FC = () => {
                 Optimization Parameters
               </Typography>
               
-              <TextField
-                fullWidth
-                label="Symbol"
+              <Autocomplete
+                freeSolo
+                openOnFocus={false}
+                options={availableSymbols}
                 value={symbol}
-                onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                onChange={(event, newValue) => {
+                  setSymbol(newValue ? newValue.toUpperCase() : '');
+                }}
+                onInputChange={(event, newInputValue) => {
+                  setSymbol(newInputValue.toUpperCase());
+                }}
+                filterOptions={(options, { inputValue }) => {
+                  if (!inputValue) return [];
+                  return options.filter((option) =>
+                    option.toUpperCase().startsWith(inputValue.toUpperCase())
+                  );
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Symbol"
+                  />
+                )}
                 sx={{ mb: 2 }}
               />
               
@@ -503,11 +543,29 @@ const MAOptimization: React.FC = () => {
                 Compare Specific Pairs
               </Typography>
               
-              <TextField
-                fullWidth
-                label="Symbol"
+              <Autocomplete
+                freeSolo
+                openOnFocus={false}
+                options={availableSymbols}
                 value={symbol}
-                onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                onChange={(event, newValue) => {
+                  setSymbol(newValue ? newValue.toUpperCase() : '');
+                }}
+                onInputChange={(event, newInputValue) => {
+                  setSymbol(newInputValue.toUpperCase());
+                }}
+                filterOptions={(options, { inputValue }) => {
+                  if (!inputValue) return [];
+                  return options.filter((option) =>
+                    option.toUpperCase().startsWith(inputValue.toUpperCase())
+                  );
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Symbol"
+                  />
+                )}
                 sx={{ mb: 2 }}
               />
               
