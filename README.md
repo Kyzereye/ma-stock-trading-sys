@@ -48,6 +48,33 @@ A comprehensive Moving Average trading analysis and optimization system with ATR
 - MySQL database (configured in backend/.env)
 
 ### Backend Setup
+
+1. Create a `.env` file in the `backend/` directory with the following:
+```bash
+# Flask Configuration
+SECRET_KEY=your-secret-key-here-change-in-production
+FLASK_DEBUG=False
+
+# MySQL Database Configuration
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=your_password_here
+MYSQL_DATABASE=StockPxLabs
+
+# Email Configuration (SMTP)
+SMTP_HOST=smtp.hostinger.com
+SMTP_PORT=587
+SMTP_USER=your_email@example.com
+SMTP_PASS=your_email_password
+SMTP_FROM=your_email@example.com
+SMTP_SECURE=true
+
+# Frontend Configuration
+FRONTEND_URL=http://localhost:1111
+```
+
+2. Install dependencies and run:
 ```bash
 cd backend
 pip install -r requirements.txt
@@ -115,10 +142,20 @@ Frontend will run on `http://localhost:1111`
 
 ## Database Schema
 
-Uses the same MySQL database as KyzeEyeStockLabs:
-- `stock_symbols` - Available stock symbols and metadata
+Database: `StockPxLabs`
+
+### Core Tables:
+- `stock_symbols` - Available stock symbols and company names
+  - `id`, `symbol`, `company_name`
 - `daily_stock_data` - Historical OHLCV data
-- `technical_indicators` - Pre-calculated technical indicators
+  - `symbol_id`, `date`, `open`, `high`, `low`, `close`, `volume`
+- `users` - User authentication and account management
+  - `id`, `email`, `password_hash`, `email_verified`, `verification_token`, etc.
+- `user_preferences` - User-specific default settings
+  - `user_id`, `name`, `default_days`, `default_atr_period`, `default_atr_multiplier`, `default_ma_type`, `default_initial_capital`
+
+### Technical Indicators:
+All technical indicators (EMA, SMA, ATR) are calculated on-the-fly using pandas for maximum flexibility.
 
 ## Performance Metrics
 

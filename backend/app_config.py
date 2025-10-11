@@ -18,7 +18,7 @@ class Config:
     MYSQL_PORT = int(os.environ.get('MYSQL_PORT') or 3306)
     MYSQL_USER = os.environ.get('MYSQL_USER') or 'root'
     MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD') or ''
-    MYSQL_DATABASE = os.environ.get('MYSQL_DATABASE') or 'kyzereye_stock_data'
+    MYSQL_DATABASE = os.environ.get('MYSQL_DATABASE') or 'StockPxLabs'
     
     @property
     def DATABASE_URI(self):
