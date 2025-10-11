@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { Container, AppBar, Toolbar, Typography, Box, Tabs, Tab, IconButton } from '@mui/material';
+import { Container, AppBar, Toolbar, Typography, Box, Tabs, Tab, IconButton, Menu, MenuItem } from '@mui/material';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import LogoutIcon from '@mui/icons-material/Logout';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import EMATrading from './components/EMATrading';
 import MAOptimization from './components/MAOptimization';
 import Login from './components/Login';
 import Register from './components/Register';
 import EmailVerification from './components/EmailVerification';
+import UserProfile from './components/UserProfile';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import './App.css';
 
@@ -33,6 +35,8 @@ const MainApp = () => {
   const [tabValue, setTabValue] = useState(0);
   const [showRegister, setShowRegister] = useState(false);
   const [showVerification, setShowVerification] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   // Check for email verification token in URL
   const urlParams = new URLSearchParams(window.location.search);
@@ -47,6 +51,24 @@ const MainApp = () => {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+  };
+
+  const handleProfileMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleProfileMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleOpenProfile = () => {
+    setShowProfile(true);
+    handleProfileMenuClose();
+  };
+
+  const handleLogout = () => {
+    logout();
+    handleProfileMenuClose();
   };
 
   // Show email verification if token is present
@@ -83,9 +105,17 @@ const MainApp = () => {
           <Typography variant="body2" sx={{ mr: 2 }}>
             Welcome, {user?.name}
           </Typography>
-          <IconButton color="inherit" onClick={logout} title="Logout">
-            <LogoutIcon />
+          <IconButton color="inherit" onClick={handleProfileMenuOpen} title="Profile">
+            <AccountCircleIcon />
           </IconButton>
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleProfileMenuClose}
+          >
+            <MenuItem onClick={handleOpenProfile}>Profile & Settings</MenuItem>
+            <MenuItem onClick={handleLogout}>Logout</MenuItem>
+          </Menu>
         </Toolbar>
       </AppBar>
       
@@ -100,6 +130,8 @@ const MainApp = () => {
         {tabValue === 0 && <EMATrading />}
         {tabValue === 1 && <MAOptimization />}
       </Container>
+
+      <UserProfile open={showProfile} onClose={() => setShowProfile(false)} />
     </Box>
   );
 };

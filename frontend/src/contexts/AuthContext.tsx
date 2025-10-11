@@ -4,6 +4,8 @@ interface User {
   id: number;
   email: string;
   name: string;
+  role: string;
+  role_display: string;
   preferences: {
     default_days: number;
     default_atr_period: number;

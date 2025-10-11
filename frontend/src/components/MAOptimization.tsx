@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -23,6 +23,7 @@ import {
   Select,
   MenuItem
 } from '@mui/material';
+import { useAuth } from '../contexts/AuthContext';
 
 interface OptimizationResult {
   fast_ma: number;
@@ -84,6 +85,8 @@ function a11yProps(index: number) {
 }
 
 const MAOptimization: React.FC = () => {
+  const { user } = useAuth();
+  
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,18 +94,29 @@ const MAOptimization: React.FC = () => {
   
   // Optimization parameters
   const [symbol, setSymbol] = useState('AAPL');
-  const [days, setDays] = useState(365);
+  const [days, setDays] = useState(user?.preferences.default_days || 365);
   const [fastRange, setFastRange] = useState({ min: 10, max: 20 });
   const [slowRange, setSlowRange] = useState({ min: 20, max: 50 });
   const [minDistance, setMinDistance] = useState(5);
-  const [maType, setMaType] = useState<'ema' | 'sma'>('ema');
-  const [initialCapital, setInitialCapital] = useState(100000);
-  const [atrPeriod, setAtrPeriod] = useState(14);
-  const [atrMultiplier, setAtrMultiplier] = useState(2.0);
+  const [maType, setMaType] = useState<'ema' | 'sma'>((user?.preferences.default_ma_type as 'ema' | 'sma') || 'ema');
+  const [initialCapital, setInitialCapital] = useState(user?.preferences.default_initial_capital || 100000);
+  const [atrPeriod, setAtrPeriod] = useState(user?.preferences.default_atr_period || 14);
+  const [atrMultiplier, setAtrMultiplier] = useState(user?.preferences.default_atr_multiplier || 2.0);
 
   // Comparison parameters
   const [comparePairs, setComparePairs] = useState('10,20|21,50|30,60');
   const [compareResults, setCompareResults] = useState<any>(null);
+
+  // Update parameters when user preferences change
+  useEffect(() => {
+    if (user?.preferences) {
+      setDays(user.preferences.default_days);
+      setMaType(user.preferences.default_ma_type as 'ema' | 'sma');
+      setInitialCapital(user.preferences.default_initial_capital);
+      setAtrPeriod(user.preferences.default_atr_period);
+      setAtrMultiplier(user.preferences.default_atr_multiplier);
+    }
+  }, [user]);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);

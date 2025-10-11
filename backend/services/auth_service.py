@@ -195,13 +195,15 @@ class AuthService:
             conn.connect()
             cursor = conn.connection.cursor()
             
-            # Get user
+            # Get user with role information
             cursor.execute(
                 """SELECT u.id, u.email, u.password_hash, u.is_active, u.email_verified,
+                u.role_id, r.role_name, r.display_name,
                 p.name, p.default_days, p.default_atr_period, p.default_atr_multiplier,
                 p.default_ma_type, p.default_initial_capital
                 FROM users u
                 LEFT JOIN user_preferences p ON u.id = p.user_id
+                LEFT JOIN roles r ON u.role_id = r.id
                 WHERE u.email = %s""",
                 (email.lower(),)
             )
@@ -219,6 +221,9 @@ class AuthService:
                 password_hash = user['password_hash']
                 is_active = user['is_active']
                 email_verified = user['email_verified']
+                role_id = user['role_id']
+                role_name = user['role_name']
+                role_display_name = user['display_name']
                 name = user['name']
                 default_days = user['default_days']
                 default_atr_period = user['default_atr_period']
@@ -226,8 +231,9 @@ class AuthService:
                 default_ma_type = user['default_ma_type']
                 default_initial_capital = user['default_initial_capital']
             else:
-                user_id, user_email, password_hash, is_active, email_verified, name, default_days, default_atr_period, \
-                    default_atr_multiplier, default_ma_type, default_initial_capital = user
+                user_id, user_email, password_hash, is_active, email_verified, role_id, role_name, role_display_name, \
+                    name, default_days, default_atr_period, default_atr_multiplier, default_ma_type, \
+                    default_initial_capital = user
             
             if not is_active:
                 cursor.close()
@@ -262,6 +268,8 @@ class AuthService:
                 'id': user_id,
                 'email': user_email,
                 'name': name,
+                'role': role_name,
+                'role_display': role_display_name,
                 'preferences': {
                     'default_days': default_days,
                     'default_atr_period': default_atr_period,
@@ -502,4 +510,116 @@ class AuthService:
         except Exception as e:
             logger.error(f"Error resending verification email: {e}")
             return (False, f"Failed to resend verification email: {str(e)}")
+    
+    @staticmethod
+    def update_user_profile(user_id: int, name: Optional[str] = None, email: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        Update user profile (name and/or email)
+        
+        Returns: (success, message)
+        """
+        try:
+            conn = get_db_connection()
+            conn.connect()
+            cursor = conn.connection.cursor()
+            
+            # Update name in user_preferences if provided
+            if name:
+                cursor.execute(
+                    "UPDATE user_preferences SET name = %s WHERE user_id = %s",
+                    (name.strip(), user_id)
+                )
+                conn.connection.commit()
+            
+            # Update email in users table if provided
+            if email:
+                # Validate email first
+                is_valid, error_msg = AuthService.validate_email(email)
+                if not is_valid:
+                    cursor.close()
+                    conn.connection.close()
+                    return (False, f"Invalid email: {error_msg}")
+                
+                # Check if email is already taken by another user
+                cursor.execute(
+                    "SELECT id FROM users WHERE email = %s AND id != %s",
+                    (email.lower(), user_id)
+                )
+                if cursor.fetchone():
+                    cursor.close()
+                    conn.connection.close()
+                    return (False, "Email already in use by another account")
+                
+                # Update email (will require re-verification if we add that later)
+                cursor.execute(
+                    "UPDATE users SET email = %s WHERE id = %s",
+                    (email.lower(), user_id)
+                )
+                conn.connection.commit()
+            
+            cursor.close()
+            conn.connection.close()
+            
+            logger.info(f"Profile updated for user_id: {user_id}")
+            return (True, "Profile updated successfully")
+            
+        except Exception as e:
+            logger.error(f"Error updating profile: {e}")
+            return (False, f"Failed to update profile: {str(e)}")
+    
+    @staticmethod
+    def change_password(user_id: int, current_password: str, new_password: str) -> Tuple[bool, str]:
+        """
+        Change user password
+        
+        Returns: (success, message)
+        """
+        try:
+            # Validate new password
+            is_valid, failures = AuthService.validate_password_strength(new_password)
+            if not is_valid:
+                return (False, "; ".join(failures))
+            
+            conn = get_db_connection()
+            conn.connect()
+            cursor = conn.connection.cursor()
+            
+            # Get current password hash
+            cursor.execute(
+                "SELECT password_hash FROM users WHERE id = %s",
+                (user_id,)
+            )
+            user = cursor.fetchone()
+            
+            if not user:
+                cursor.close()
+                conn.connection.close()
+                return (False, "User not found")
+            
+            current_hash = user['password_hash'] if isinstance(user, dict) else user[0]
+            
+            # Verify current password
+            if not AuthService.verify_password(current_password, current_hash):
+                cursor.close()
+                conn.connection.close()
+                return (False, "Current password is incorrect")
+            
+            # Hash new password
+            new_hash = AuthService.hash_password(new_password)
+            
+            # Update password
+            cursor.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (new_hash, user_id)
+            )
+            conn.connection.commit()
+            cursor.close()
+            conn.connection.close()
+            
+            logger.info(f"Password changed for user_id: {user_id}")
+            return (True, "Password changed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error changing password: {e}")
+            return (False, f"Failed to change password: {str(e)}")
 

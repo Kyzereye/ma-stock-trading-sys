@@ -21,6 +21,7 @@ import {
   LinearProgress
 } from '@mui/material';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, LineData, Time } from 'lightweight-charts';
+import { useAuth } from '../contexts/AuthContext';
 
 interface EMASignal {
   date: string;
@@ -72,12 +73,14 @@ interface EMAResults {
 }
 
 const EMATrading: React.FC = () => {
+  const { user } = useAuth();
+  
   const [symbol, setSymbol] = useState('AAPL');
-  const [initialCapital, setInitialCapital] = useState(100000);
-  const [days, setDays] = useState(0);
-  const [atrPeriod, setAtrPeriod] = useState(14);
-  const [atrMultiplier, setAtrMultiplier] = useState(2.0);
-  const [maType, setMaType] = useState<'ema' | 'sma'>('ema');
+  const [initialCapital, setInitialCapital] = useState(user?.preferences.default_initial_capital || 100000);
+  const [days, setDays] = useState(user?.preferences.default_days || 365);
+  const [atrPeriod, setAtrPeriod] = useState(user?.preferences.default_atr_period || 14);
+  const [atrMultiplier, setAtrMultiplier] = useState(user?.preferences.default_atr_multiplier || 2.0);
+  const [maType, setMaType] = useState<'ema' | 'sma'>((user?.preferences.default_ma_type as 'ema' | 'sma') || 'ema');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<EMAResults | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +93,17 @@ const EMATrading: React.FC = () => {
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const ema21SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const ema50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+
+  // Update parameters when user preferences change
+  useEffect(() => {
+    if (user?.preferences) {
+      setInitialCapital(user.preferences.default_initial_capital);
+      setDays(user.preferences.default_days);
+      setAtrPeriod(user.preferences.default_atr_period);
+      setAtrMultiplier(user.preferences.default_atr_multiplier);
+      setMaType(user.preferences.default_ma_type as 'ema' | 'sma');
+    }
+  }, [user]);
 
   const runEMAAnalysis = async () => {
     if (!symbol.trim()) {

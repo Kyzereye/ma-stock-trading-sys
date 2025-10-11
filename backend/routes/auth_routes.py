@@ -228,3 +228,65 @@ def resend_verification():
     except Exception as e:
         logger.error(f"Error in resend_verification endpoint: {e}")
         return jsonify({'error': str(e)}), 500
+
+@auth_bp.route('/profile', methods=['PUT'])
+@require_auth
+def update_profile():
+    """Update user profile (name and/or email)"""
+    try:
+        data = request.get_json()
+        
+        success, message = AuthService.update_user_profile(
+            request.user_id, 
+            data.get('name'),
+            data.get('email')
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': message
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': message
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Error in update_profile endpoint: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@auth_bp.route('/change-password', methods=['PUT'])
+@require_auth
+def change_password():
+    """Change user password"""
+    try:
+        data = request.get_json()
+        
+        current_password = data.get('current_password', '')
+        new_password = data.get('new_password', '')
+        
+        if not current_password or not new_password:
+            return jsonify({'error': 'Current and new passwords are required'}), 400
+        
+        success, message = AuthService.change_password(
+            request.user_id,
+            current_password,
+            new_password
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': message
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': message
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Error in change_password endpoint: {e}")
+        return jsonify({'error': str(e)}), 500

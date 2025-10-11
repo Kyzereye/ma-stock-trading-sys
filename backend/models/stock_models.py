@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 class StockSymbol:
     """Model for stock_symbols table"""
     
-    def __init__(self, symbol: str, company_name: str = None, 
+    def __init__(self, symbol: str, company_name: str = None, market_cap: int = None, 
                  symbol_id: int = None, created_at: datetime = None, updated_at: datetime = None):
         self.id = symbol_id
         self.symbol = symbol.upper()
@@ -75,41 +75,3 @@ class DailyStockData:
             created_at=data.get('created_at')
         )
 
-class TechnicalIndicator:
-    """Model for technical_indicators table"""
-    
-    def __init__(self, symbol_id: int, date: date, indicator_name: str, 
-                 value: float, period: int = None, indicator_id: int = None,
-                 created_at: datetime = None):
-        self.id = indicator_id
-        self.symbol_id = symbol_id
-        self.date = date
-        self.indicator_name = indicator_name
-        self.value = value
-        self.period = period
-        self.created_at = created_at
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary"""
-        return {
-            'id': self.id,
-            'symbol_id': self.symbol_id,
-            'date': self.date,
-            'indicator_name': self.indicator_name,
-            'value': self.value,
-            'period': self.period,
-            'created_at': self.created_at
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'TechnicalIndicator':
-        """Create from dictionary"""
-        return cls(
-            indicator_id=data.get('id'),
-            symbol_id=data.get('symbol_id'),
-            date=data.get('date'),
-            indicator_name=data.get('indicator_name'),
-            value=data.get('value'),
-            period=data.get('period'),
-            created_at=data.get('created_at')
-        )
