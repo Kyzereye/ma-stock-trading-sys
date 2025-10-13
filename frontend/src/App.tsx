@@ -7,6 +7,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import EMATrading from './components/EMATrading';
 import MAOptimization from './components/MAOptimization';
+import TopPerformers from './components/TopPerformers';
 import Login from './components/Login';
 import Register from './components/Register';
 import EmailVerification from './components/EmailVerification';
@@ -123,12 +124,14 @@ const MainApp = () => {
         <Tabs value={tabValue} onChange={handleTabChange} centered>
           <Tab label="Trading Analysis" />
           <Tab label="MA Optimization" />
+          <Tab label="Top Performers" />
         </Tabs>
       </Box>
       
       <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
         {tabValue === 0 && <EMATrading />}
         {tabValue === 1 && <MAOptimization />}
+        {tabValue === 2 && <TopPerformers />}
       </Container>
 
       <UserProfile open={showProfile} onClose={() => setShowProfile(false)} />

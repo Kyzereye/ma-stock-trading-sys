@@ -543,8 +543,39 @@ class MATradingEngine:
             'total_return_percent': total_return_percent,
             'avg_trade_duration': avg_duration,
             'max_drawdown': max_drawdown,
-            'sharpe_ratio': 0.0  # Simplified for now
+            'sharpe_ratio': self._calculate_sharpe_ratio(trades)
         }
+    
+    def _calculate_sharpe_ratio(self, trades: List[MATrade]) -> float:
+        """Calculate Sharpe ratio for the trading strategy"""
+        if not trades or len(trades) < 2:
+            return 0.0
+        
+        # Get trade returns as percentages
+        returns = []
+        for trade in trades:
+            if trade.pnl is not None and trade.entry_price > 0:
+                # Calculate return percentage for this trade
+                trade_return = (trade.pnl / (trade.entry_price * trade.shares)) * 100
+                returns.append(trade_return)
+        
+        if len(returns) < 2:
+            return 0.0
+        
+        # Calculate mean and standard deviation of returns
+        mean_return = sum(returns) / len(returns)
+        
+        # Calculate standard deviation
+        variance = sum((r - mean_return) ** 2 for r in returns) / (len(returns) - 1)
+        std_dev = variance ** 0.5
+        
+        # Sharpe ratio = (mean return - risk free rate) / standard deviation
+        # Using 0% as risk-free rate for simplicity
+        if std_dev == 0:
+            return 0.0
+        
+        sharpe_ratio = mean_return / std_dev
+        return round(sharpe_ratio, 2)
     
     def _generate_equity_curve(self, df: pd.DataFrame, trades: List[MATrade]) -> List[Tuple[datetime, float]]:
         """Generate equity curve"""

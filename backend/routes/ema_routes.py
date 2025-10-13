@@ -266,3 +266,169 @@ def get_ema_summary(symbol):
     except Exception as e:
         logger.error(f"Error getting EMA summary for {symbol}: {e}")
         return jsonify({'error': str(e)}), 500
+
+@ema_bp.route('/top-performers', methods=['POST'])
+def get_top_performers():
+    """Analyze all stocks and return top 5 performers"""
+    try:
+        logger.info("Starting top performers analysis")
+        data = request.get_json()
+        logger.info(f"Request data: {data}")
+        
+        initial_capital = float(data.get('initial_capital', 100000))
+        days = int(data.get('days', 365))  # Default to 1 year
+        atr_period = int(data.get('atr_period', 14))
+        atr_multiplier = float(data.get('atr_multiplier', 2.0))
+        ma_type = data.get('ma_type', 'ema')
+        position_sizing_percentage = float(data.get('position_sizing_percentage', 5.0))
+        
+        logger.info(f"Parameters: capital={initial_capital}, days={days}, atr_period={atr_period}, atr_multiplier={atr_multiplier}, ma_type={ma_type}, position_sizing={position_sizing_percentage}")
+        
+        # Import required modules
+        logger.info("Importing required modules")
+        from utils.database import get_db_connection
+        from utils.data_retrieval import get_stock_data
+        logger.info("Modules imported successfully")
+        
+        # Get all stock symbols from database
+        logger.info("Connecting to database")
+        conn = get_db_connection()
+        conn.connect()
+        cursor = conn.connection.cursor()
+        logger.info("Database connected, executing query")
+        
+        if days > 0:
+            cursor.execute("""
+                SELECT s.symbol, s.company_name 
+                FROM stock_symbols s
+                WHERE EXISTS (
+                    SELECT 1 FROM daily_stock_data d 
+                    WHERE d.symbol_id = s.id 
+                    AND d.date >= DATE_SUB(CURDATE(), INTERVAL %s DAY)
+                )
+                ORDER BY s.symbol
+            """, (days,))
+        else:
+            # Get all stocks that have any data
+            cursor.execute("""
+                SELECT s.symbol, s.company_name 
+                FROM stock_symbols s
+                WHERE EXISTS (
+                    SELECT 1 FROM daily_stock_data d 
+                    WHERE d.symbol_id = s.id
+                )
+                ORDER BY s.symbol
+            """)
+        
+        symbols_data = cursor.fetchall()
+        cursor.close()
+        conn.connection.close()
+        
+        logger.info(f"Found {len(symbols_data)} stocks in database")
+        if symbols_data:
+            # Handle both dict and tuple formats
+            if isinstance(symbols_data[0], dict):
+                sample_symbols = [s['symbol'] for s in symbols_data[:5]]
+            else:
+                sample_symbols = [s[0] for s in symbols_data[:5]]
+            logger.info(f"Sample symbols: {sample_symbols}")
+        
+        if not symbols_data:
+            logger.info("No symbols found, returning error")
+            return jsonify({'error': 'No stocks found in database'}), 404
+        
+        logger.info(f"Analyzing {len(symbols_data)} stocks for top performers")
+        logger.info("About to start analysis loop")
+        
+        # Analyze each stock
+        results = []
+        logger.info("Starting first iteration of analysis loop")
+        for i, symbol_data in enumerate(symbols_data):
+            # Handle both dict and tuple formats
+            if isinstance(symbol_data, dict):
+                symbol = symbol_data['symbol']
+                company_name = symbol_data['company_name']
+            else:
+                symbol, company_name = symbol_data
+            try:
+                logger.info(f"Analyzing {i+1}/{len(symbols_data)}: {symbol}")
+                
+                # Get data for this symbol
+                logger.info(f"Calling get_stock_data for {symbol}")
+                df = get_stock_data(symbol, days)
+                logger.info(f"get_stock_data returned for {symbol}")
+                if df is None or len(df) < 30:  # Need minimum data (reduced from 50)
+                    logger.debug(f"Skipping {symbol}: insufficient data ({len(df) if df is not None else 0} days)")
+                    continue
+                
+                logger.debug(f"{symbol}: Got {len(df)} days of data")
+                
+                # Run analysis
+                engine = MATradingEngine(
+                    initial_capital, atr_period, atr_multiplier, ma_type, 
+                    None, None, 10.0, position_sizing_percentage
+                )
+                analysis = engine.run_analysis(df, symbol)
+                
+                logger.debug(f"{symbol}: Analysis complete, {len(analysis.trades)} trades")
+                
+                # Calculate win rate
+                total_trades = len(analysis.trades)
+                winning_trades = len([t for t in analysis.trades if t.pnl and t.pnl > 0])
+                win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+                
+                # Calculate total return percentage
+                if initial_capital == 0:
+                    logger.error(f"Initial capital is 0 for {symbol}")
+                    continue
+                
+                # Handle both dict and object formats for performance_metrics
+                if isinstance(analysis.performance_metrics, dict):
+                    total_pnl = analysis.performance_metrics['total_pnl']
+                    sharpe_ratio = analysis.performance_metrics['sharpe_ratio']
+                else:
+                    total_pnl = analysis.performance_metrics.total_pnl
+                    sharpe_ratio = analysis.performance_metrics.sharpe_ratio
+                    
+                total_return_pct = (total_pnl / initial_capital) * 100
+                
+                results.append({
+                    'symbol': symbol,
+                    'company_name': company_name,
+                    'total_return_pct': round(total_return_pct, 2),
+                    'total_pnl': round(total_pnl, 2),
+                    'win_rate': round(win_rate, 1),
+                    'total_trades': total_trades,
+                    'sharpe_ratio': round(sharpe_ratio, 2)
+                })
+                
+                logger.debug(f"{symbol}: Added to results")
+                
+            except Exception as e:
+                logger.error(f"Error analyzing {symbol}: {e}", exc_info=True)
+                continue
+        
+        # Sort by total return percentage (descending)
+        results.sort(key=lambda x: x['total_return_pct'], reverse=True)
+        
+        # Return top 10
+        top_10 = results[:10]
+        
+        logger.info(f"Top performers analysis complete. Found {len(results)} valid stocks out of {len(symbols_data)} total stocks.")
+        if results:
+            logger.info(f"Top performer: {results[0]['symbol']} with {results[0]['total_return_pct']}% return")
+        
+        return jsonify({
+            'success': True,
+            'top_performers': top_10,
+            'total_analyzed': len(results),
+            'analysis_params': {
+                'days': days,
+                'initial_capital': initial_capital,
+                'position_sizing_percentage': position_sizing_percentage
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in top performers analysis: {e}")
+        return jsonify({'error': str(e)}), 500
