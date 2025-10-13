@@ -19,7 +19,8 @@ import {
   Tabs,
   Tab,
   LinearProgress,
-  Autocomplete
+  Autocomplete,
+  Tooltip
 } from '@mui/material';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, LineData, Time } from 'lightweight-charts';
 import { useAuth } from '../contexts/AuthContext';
@@ -64,6 +65,14 @@ interface EMAPerformanceMetrics {
   sharpe_ratio: number;
 }
 
+interface MeanReversionAlert {
+  date: string;
+  price: number;
+  ma_21: number;
+  distance_percent: number;
+  reasoning: string;
+}
+
 interface EMAResults {
   symbol: string;
   start_date: string;
@@ -72,6 +81,7 @@ interface EMAResults {
   performance_metrics: EMAPerformanceMetrics;
   trades: EMATrade[];
   signals: EMASignal[];
+  mean_reversion_alerts: MeanReversionAlert[];
   equity_curve: Array<{ date: string; equity: number }>;
 }
 
@@ -80,11 +90,15 @@ const EMATrading: React.FC = () => {
   
   const [symbol, setSymbol] = useState('');
   const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
-  const [initialCapital, setInitialCapital] = useState(user?.preferences.default_initial_capital || 100000);
   const [days, setDays] = useState(user?.preferences.default_days || 365);
-  const [atrPeriod, setAtrPeriod] = useState(user?.preferences.default_atr_period || 14);
   const [atrMultiplier, setAtrMultiplier] = useState(user?.preferences.default_atr_multiplier || 2.0);
   const [maType, setMaType] = useState<'ema' | 'sma'>((user?.preferences.default_ma_type as 'ema' | 'sma') || 'ema');
+  const [meanReversionThreshold, setMeanReversionThreshold] = useState(user?.preferences.mean_reversion_threshold || 10.0);
+  const [tradesColumns, setTradesColumns] = useState(user?.preferences.trades_columns || {
+    entry_date: true, exit_date: true, entry_price: true, exit_price: true,
+    exit_reason: true, shares: true, pnl: true, pnl_percent: true,
+    running_pnl: true, running_capital: true, drawdown: true, duration: true
+  });
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<EMAResults | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -121,11 +135,15 @@ const EMATrading: React.FC = () => {
   // Update parameters when user preferences change
   useEffect(() => {
     if (user?.preferences) {
-      setInitialCapital(user.preferences.default_initial_capital);
       setDays(user.preferences.default_days);
-      setAtrPeriod(user.preferences.default_atr_period);
       setAtrMultiplier(user.preferences.default_atr_multiplier);
       setMaType(user.preferences.default_ma_type as 'ema' | 'sma');
+      setMeanReversionThreshold(user.preferences.mean_reversion_threshold);
+      setTradesColumns(user.preferences.trades_columns || {
+        entry_date: true, exit_date: true, entry_price: true, exit_price: true,
+        exit_reason: true, shares: true, pnl: true, pnl_percent: true,
+        running_pnl: true, running_capital: true, drawdown: true, duration: true
+      });
     }
   }, [user]);
 
@@ -140,9 +158,22 @@ const EMATrading: React.FC = () => {
     setResults(null);
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/ema/analyze/${symbol.toUpperCase()}?initial_capital=${initialCapital}&days=${days}&atr_period=${atrPeriod}&atr_multiplier=${atrMultiplier}&ma_type=${maType}`
-      );
+      const response = await fetch(`${API_URL}/api/ema/analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          symbol: symbol.toUpperCase(),
+          initial_capital: user?.preferences.default_initial_capital || 100000,
+          days: days,
+          atr_period: user?.preferences.default_atr_period || 14,
+          atr_multiplier: atrMultiplier,
+          ma_type: maType,
+          mean_reversion_threshold: meanReversionThreshold,
+          position_sizing_percentage: user?.preferences.position_sizing_percentage || 5.0
+        })
+      });
       
       if (!response.ok) {
         const errorData = await response.json();
@@ -177,6 +208,16 @@ const EMATrading: React.FC = () => {
 
   const formatPercent = (value: number) => {
     return `${value.toFixed(2)}%`;
+  };
+
+  const getExitReasonHeaderTooltip = () => {
+    return (
+      <div>
+        <div><strong>MA Signal:</strong> Price closed below 21 MA (primary exit)</div>
+        <div><strong>Trailing Stop:</strong> Hit stop loss (Highest Price - ATR × Multiplier)</div>
+        <div><strong>Trend Break:</strong> Price closed below 50 MA (major reversal)</div>
+      </div>
+    );
   };
 
   // Chart functions
@@ -214,13 +255,13 @@ const EMATrading: React.FC = () => {
     });
 
     const ma21Series = chart.addLineSeries({
-      color: '#ff9800',
-      lineWidth: 2,
+      color: '#ffffff',  // White for fast MA (21)
+      lineWidth: 1,
     });
 
     const ma50Series = chart.addLineSeries({
-      color: '#2196f3',
-      lineWidth: 2,
+      color: '#2196f3',  // Blue for slow MA (50)
+      lineWidth: 1,
     });
 
     chartRef.current = chart;
@@ -306,9 +347,24 @@ const EMATrading: React.FC = () => {
           position: signal.signal_type === 'BUY' ? 'belowBar' as const : 'aboveBar' as const,
           color: signal.signal_type === 'BUY' ? '#00ff00' : '#ff0000',
           shape: signal.signal_type === 'BUY' ? 'arrowUp' as const : 'arrowDown' as const,
-          text: signal.signal_type,
+          text: signal.signal_type === 'BUY' ? 'Entry' : 'Exit',
         };
         signalMarkers.push(marker);
+      });
+    }
+
+    // Add mean reversion alert markers
+    if (results && results.mean_reversion_alerts && results.mean_reversion_alerts.length > 0) {
+      results.mean_reversion_alerts.forEach(alert => {
+        const dateStr = alert.date.includes('T') ? alert.date.split('T')[0] : alert.date;
+        const alertMarker = {
+          time: dateStr as Time,
+          position: 'aboveBar' as const,
+          color: '#ffa500', // Orange color for alerts
+          shape: 'circle' as const,
+          text: `Alert: ${alert.distance_percent.toFixed(1)}%`,
+        };
+        signalMarkers.push(alertMarker);
       });
     }
 
@@ -316,6 +372,9 @@ const EMATrading: React.FC = () => {
     candlestickSeriesRef.current.setData(candlestickData);
     ema21SeriesRef.current.setData(ma21Data);
     ema50SeriesRef.current.setData(ma50Data);
+    
+    // Sort markers by time to ensure chronological order
+    signalMarkers.sort((a, b) => (a.time as string).localeCompare(b.time as string));
     
     // Update signal markers
     candlestickSeriesRef.current.setMarkers(signalMarkers);
@@ -326,7 +385,7 @@ const EMATrading: React.FC = () => {
 
   // Initialize chart when component mounts
   useEffect(() => {
-    if (activeTab === 3) { // Chart tab
+    if (activeTab === 4) { // Chart tab
       const cleanup = initializeChart();
       return cleanup;
     }
@@ -334,7 +393,7 @@ const EMATrading: React.FC = () => {
 
   // Load chart data when results change
   useEffect(() => {
-    if (results && activeTab === 3) {
+    if (results && activeTab === 4) {
       // Add a small delay to ensure chart is initialized
       setTimeout(() => {
         loadChartData();
@@ -344,7 +403,7 @@ const EMATrading: React.FC = () => {
 
   // Update chart when data changes
   useEffect(() => {
-    if (stockData.length > 0 && results && activeTab === 3) {
+    if (stockData.length > 0 && results && activeTab === 4) {
       // Add a small delay to ensure chart is ready
       setTimeout(() => {
         updateChart();
@@ -365,7 +424,7 @@ const EMATrading: React.FC = () => {
       {/* Input Controls */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'flex-start' }}>
             <Box sx={{ flex: '1 1 200px', minWidth: '200px' }}>
               <Autocomplete
                 freeSolo
@@ -396,16 +455,6 @@ const EMATrading: React.FC = () => {
             <Box sx={{ flex: '1 1 200px', minWidth: '200px' }}>
               <TextField
                 fullWidth
-                label="Initial Capital"
-                type="number"
-                value={initialCapital}
-                onChange={(e) => setInitialCapital(Number(e.target.value))}
-                inputProps={{ min: 1000, step: 1000 }}
-              />
-            </Box>
-            <Box sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-              <TextField
-                fullWidth
                 label="Days to Analyze"
                 type="number"
                 value={days === 0 ? '' : days}
@@ -417,17 +466,6 @@ const EMATrading: React.FC = () => {
                 }}
                 inputProps={{ min: 0, max: 2000 }}
                 helperText={days === 0 ? "0 = All available data" : "Enter number of days to analyze"}
-              />
-            </Box>
-            <Box sx={{ flex: '1 1 200px', minWidth: '200px' }}>
-              <TextField
-                fullWidth
-                label="ATR Period"
-                type="number"
-                value={atrPeriod}
-                onChange={(e) => setAtrPeriod(Number(e.target.value))}
-                inputProps={{ min: 5, max: 50 }}
-                helperText="Period for ATR calculation"
               />
             </Box>
             <Box sx={{ flex: '1 1 200px', minWidth: '200px' }}>
@@ -456,6 +494,17 @@ const EMATrading: React.FC = () => {
                 <option value="ema">EMA (Exponential)</option>
                 <option value="sma">SMA (Simple)</option>
               </TextField>
+            </Box>
+            <Box sx={{ flex: '1 1 200px', minWidth: '200px' }}>
+              <TextField
+                fullWidth
+                label="Mean Reversion Threshold"
+                type="number"
+                value={meanReversionThreshold}
+                onChange={(e) => setMeanReversionThreshold(Number(e.target.value))}
+                inputProps={{ min: 3, max: 15, step: 0.5 }}
+                helperText="Alert when price is X% above 21-MA (overbought)"
+              />
             </Box>
           </Box>
           
@@ -528,6 +577,7 @@ const EMATrading: React.FC = () => {
               <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
                 <Tab label="Trades" />
                 <Tab label="Signals" />
+                <Tab label="Mean Reversion Alerts" />
                 <Tab label="Performance Details" />
                 <Tab label="Chart" />
               </Tabs>
@@ -540,55 +590,130 @@ const EMATrading: React.FC = () => {
                   <Table>
                     <TableHead>
                       <TableRow>
-                        <TableCell>Entry Date</TableCell>
-                        <TableCell>Exit Date</TableCell>
-                        <TableCell>Entry Price</TableCell>
-                        <TableCell>Exit Price</TableCell>
-                        <TableCell>Exit Reason</TableCell>
-                        <TableCell>Shares</TableCell>
-                        <TableCell>P&L</TableCell>
-                        <TableCell>P&L %</TableCell>
-                        <TableCell>Duration</TableCell>
+                        {tradesColumns.entry_date && <TableCell>Entry Date</TableCell>}
+                        {tradesColumns.exit_date && <TableCell>Exit Date</TableCell>}
+                        {tradesColumns.entry_price && <TableCell>Entry Price</TableCell>}
+                        {tradesColumns.exit_price && <TableCell>Exit Price</TableCell>}
+                        {tradesColumns.exit_reason && (
+                          <TableCell>
+                            <Tooltip title={getExitReasonHeaderTooltip()} arrow placement="top">
+                              <span style={{ cursor: 'help', textDecoration: 'underline dotted' }}>
+                                Exit Reason
+                              </span>
+                            </Tooltip>
+                          </TableCell>
+                        )}
+                        {tradesColumns.shares && <TableCell>Shares</TableCell>}
+                        {tradesColumns.pnl && <TableCell>P&L</TableCell>}
+                        {tradesColumns.pnl_percent && <TableCell>P&L %</TableCell>}
+                        {tradesColumns.running_pnl && <TableCell>Running P&L</TableCell>}
+                        {tradesColumns.running_capital && <TableCell>Running Capital</TableCell>}
+                        {tradesColumns.drawdown && <TableCell>Drawdown</TableCell>}
+                        {tradesColumns.duration && <TableCell>Duration</TableCell>}
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {results.trades.map((trade, index) => (
+                      {results.trades.map((trade, index) => {
+                        // Calculate running P&L (cumulative profit/loss starting from 0)
+                        // Since trades are sorted newest first, we need to calculate from oldest to current
+                        const tradesFromOldest = [...results.trades].reverse();
+                        const currentTradeIndex = tradesFromOldest.length - 1 - index;
+                        const runningPnl = tradesFromOldest
+                          .slice(0, currentTradeIndex + 1)
+                          .reduce((sum, t) => sum + (t.pnl || 0), 0);
+                        
+                        // Calculate running capital (initial capital + running P&L)
+                        const runningCapital = (user?.preferences.default_initial_capital || 100000) + runningPnl;
+                        
+                        // Calculate drawdown (peak capital - current capital)
+                        const tradesUpToCurrent = tradesFromOldest.slice(0, currentTradeIndex + 1);
+                        const initialCap = user?.preferences.default_initial_capital || 100000;
+                        const peakCapital = Math.max(
+                          initialCap,
+                          ...tradesUpToCurrent.map((t, i) => 
+                            initialCap + tradesUpToCurrent.slice(0, i + 1).reduce((sum, trade) => sum + (trade.pnl || 0), 0)
+                          )
+                        );
+                        const drawdown = peakCapital - runningCapital;
+                        const drawdownPercent = (drawdown / initialCap) * 100;
+                        
+                        return (
                         <TableRow key={index}>
-                          <TableCell>{new Date(trade.entry_date).toLocaleDateString()}</TableCell>
-                          <TableCell>
-                            {trade.exit_date ? new Date(trade.exit_date).toLocaleDateString() : 'Open'}
-                          </TableCell>
-                          <TableCell>{formatCurrency(trade.entry_price)}</TableCell>
-                          <TableCell>
-                            {trade.exit_price ? formatCurrency(trade.exit_price) : 'Open'}
-                          </TableCell>
-                          <TableCell>
-                            {trade.exit_reason || 'Open'}
-                          </TableCell>
-                          <TableCell>{trade.shares.toLocaleString()}</TableCell>
-                          <TableCell>
-                            {trade.pnl ? (
+                          {tradesColumns.entry_date && <TableCell>{new Date(trade.entry_date).toLocaleDateString()}</TableCell>}
+                          {tradesColumns.exit_date && (
+                            <TableCell>
+                              {trade.exit_date ? new Date(trade.exit_date).toLocaleDateString() : 'Open'}
+                            </TableCell>
+                          )}
+                          {tradesColumns.entry_price && <TableCell>{formatCurrency(trade.entry_price)}</TableCell>}
+                          {tradesColumns.exit_price && (
+                            <TableCell>
+                              {trade.exit_price ? formatCurrency(trade.exit_price) : 'Open'}
+                            </TableCell>
+                          )}
+                          {tradesColumns.exit_reason && (
+                            <TableCell>
+                              {trade.exit_reason || 'Open'}
+                            </TableCell>
+                          )}
+                          {tradesColumns.shares && <TableCell>{trade.shares.toLocaleString()}</TableCell>}
+                          {tradesColumns.pnl && (
+                            <TableCell>
+                              {trade.pnl ? (
+                                <Chip
+                                  label={formatCurrency(trade.pnl)}
+                                  color={getPerformanceColor(trade.pnl)}
+                                  size="small"
+                                />
+                              ) : 'Open'}
+                            </TableCell>
+                          )}
+                          {tradesColumns.pnl_percent && (
+                            <TableCell>
+                              {trade.pnl_percent ? (
+                                <Chip
+                                  label={formatPercent(trade.pnl_percent)}
+                                  color={getPerformanceColor(trade.pnl_percent)}
+                                  size="small"
+                                />
+                              ) : 'Open'}
+                            </TableCell>
+                          )}
+                          {tradesColumns.running_pnl && (
+                            <TableCell>
                               <Chip
-                                label={formatCurrency(trade.pnl)}
-                                color={getPerformanceColor(trade.pnl)}
+                                label={formatCurrency(runningPnl)}
+                                color={getPerformanceColor(runningPnl)}
                                 size="small"
                               />
-                            ) : 'Open'}
-                          </TableCell>
-                          <TableCell>
-                            {trade.pnl_percent ? (
+                            </TableCell>
+                          )}
+                          {tradesColumns.running_capital && (
+                            <TableCell>
                               <Chip
-                                label={formatPercent(trade.pnl_percent)}
-                                color={getPerformanceColor(trade.pnl_percent)}
+                                label={formatCurrency(runningCapital)}
+                                color={getPerformanceColor(runningCapital - initialCap)}
                                 size="small"
                               />
-                            ) : 'Open'}
-                          </TableCell>
-                          <TableCell>
-                            {trade.duration_days ? `${trade.duration_days} days` : 'Open'}
-                          </TableCell>
+                            </TableCell>
+                          )}
+                          {tradesColumns.drawdown && (
+                            <TableCell>
+                              <Chip
+                                label={`${drawdownPercent.toFixed(1)}%`}
+                                color={drawdown > 0 ? "error" : "success"}
+                                size="small"
+                              />
+                            </TableCell>
+                          )}
+                          {tradesColumns.duration && (
+                            <TableCell>
+                              {trade.duration_days ? `${trade.duration_days} days` : 'Open'}
+                            </TableCell>
+                          )}
                         </TableRow>
-                      ))}
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -643,8 +768,52 @@ const EMATrading: React.FC = () => {
                 </TableContainer>
               )}
 
-              {/* Performance Details Tab */}
+              {/* Mean Reversion Alerts Tab */}
               {activeTab === 2 && (
+                <TableContainer component={Paper}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Price</TableCell>
+                        <TableCell>{maType.toUpperCase()} 21</TableCell>
+                        <TableCell>Distance %</TableCell>
+                        <TableCell>Reasoning</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {results.mean_reversion_alerts && results.mean_reversion_alerts.length > 0 ? (
+                        results.mean_reversion_alerts.map((alert, index) => (
+                          <TableRow key={index}>
+                            <TableCell>{new Date(alert.date).toLocaleDateString()}</TableCell>
+                            <TableCell>${alert.price.toFixed(2)}</TableCell>
+                            <TableCell>${alert.ma_21.toFixed(2)}</TableCell>
+                            <TableCell>
+                              <Chip
+                                label={`${alert.distance_percent.toFixed(1)}%`}
+                                color="warning"
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell>{alert.reasoning}</TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={5} align="center">
+                            <Typography variant="body2" color="text.secondary">
+                              No mean reversion alerts found for this analysis period.
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+
+              {/* Performance Details Tab */}
+              {activeTab === 4 && (
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
                   <Box sx={{ flex: '1 1 300px' }}>
                     <Card variant="outlined">
@@ -699,12 +868,12 @@ const EMATrading: React.FC = () => {
                         </Box>
                         <Box sx={{ mb: 1 }}>
                           <Typography variant="body2">
-                            Initial Capital: <strong>{formatCurrency(initialCapital)}</strong>
+                            Initial Capital: <strong>{formatCurrency(user?.preferences.default_initial_capital || 100000)}</strong>
                           </Typography>
                         </Box>
                         <Box sx={{ mb: 1 }}>
                           <Typography variant="body2">
-                            Final Value: <strong>{formatCurrency(initialCapital + results.performance_metrics.total_pnl)}</strong>
+                            Final Value: <strong>{formatCurrency((user?.preferences.default_initial_capital || 100000) + results.performance_metrics.total_pnl)}</strong>
                           </Typography>
                         </Box>
                       </CardContent>
@@ -714,7 +883,7 @@ const EMATrading: React.FC = () => {
               )}
 
               {/* Chart Tab */}
-              {activeTab === 3 && (
+              {activeTab === 4 && (
                 <Box>
                   <Typography variant="h6" gutterBottom>
                     EMA Trading Chart

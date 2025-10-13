@@ -25,6 +25,8 @@ def analyze_ema_trading_post():
         days = int(data.get('days', 0))  # 0 means all data
         atr_period = int(data.get('atr_period', 14))
         atr_multiplier = float(data.get('atr_multiplier', 2.0))
+        mean_reversion_threshold = float(data.get('mean_reversion_threshold', 10.0))
+        position_sizing_percentage = float(data.get('position_sizing_percentage', 5.0))
         
         # Get data from database using shared method
         df = get_stock_data(symbol, days)
@@ -32,7 +34,7 @@ def analyze_ema_trading_post():
             return jsonify({'error': f'No data found for symbol {symbol}'}), 404
         
         # Run EMA analysis
-        engine = EMATradingEngine(initial_capital, atr_period, atr_multiplier)
+        engine = MATradingEngine(initial_capital, atr_period, atr_multiplier, 'ema', None, None, mean_reversion_threshold, position_sizing_percentage)
         results = engine.run_analysis(df, symbol)
         
         # Convert results to JSON-serializable format
@@ -73,6 +75,16 @@ def analyze_ema_trading_post():
                     'trailing_stop': signal.trailing_stop
                 }
                 for signal in results.signals
+            ],
+            'mean_reversion_alerts': [
+                {
+                    'date': alert.date.isoformat(),
+                    'price': alert.price,
+                    'ma_21': alert.ma_21,
+                    'distance_percent': alert.distance_percent,
+                    'reasoning': alert.reasoning
+                }
+                for alert in results.mean_reversion_alerts
             ],
             'equity_curve': [
                 {'date': date.isoformat(), 'equity': equity}
@@ -169,7 +181,7 @@ def get_ema_signals(symbol):
             return jsonify({'error': f'No data found for symbol {symbol}'}), 404
         
         # Run EMA analysis
-        engine = EMATradingEngine(100000, 14, 2.0)
+        engine = MATradingEngine(100000, 14, 2.0, 'ema', None, None, 7.0)
         results = engine.run_analysis(df, symbol.upper())
         
         # Return only signals
@@ -188,6 +200,16 @@ def get_ema_signals(symbol):
                     'trailing_stop': signal.trailing_stop
                 }
                 for signal in results.signals
+            ],
+            'mean_reversion_alerts': [
+                {
+                    'date': alert.date.isoformat(),
+                    'price': alert.price,
+                    'ma_21': alert.ma_21,
+                    'distance_percent': alert.distance_percent,
+                    'reasoning': alert.reasoning
+                }
+                for alert in results.mean_reversion_alerts
             ]
         }
         
@@ -210,7 +232,7 @@ def get_ema_summary(symbol):
             return jsonify({'error': f'No data found for symbol {symbol}'}), 404
         
         # Run EMA analysis
-        engine = EMATradingEngine(initial_capital, 14, 2.0)
+        engine = MATradingEngine(initial_capital, 14, 2.0, 'ema', None, None, 7.0)
         results = engine.run_analysis(df, symbol.upper())
         
         # Return summary
@@ -227,6 +249,15 @@ def get_ema_summary(symbol):
                     'reasoning': signal.reasoning
                 }
                 for signal in results.signals[-5:]  # Last 5 signals
+            ],
+            'recent_mean_reversion_alerts': [
+                {
+                    'date': alert.date.isoformat(),
+                    'price': alert.price,
+                    'distance_percent': alert.distance_percent,
+                    'reasoning': alert.reasoning
+                }
+                for alert in results.mean_reversion_alerts[-5:]  # Last 5 alerts
             ]
         }
         

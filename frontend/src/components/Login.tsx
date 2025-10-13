@@ -18,8 +18,8 @@ interface LoginProps {
 
 const Login: React.FC<LoginProps> = ({ onSwitchToRegister }) => {
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('kyzereye@gmail.com');
+  const [password, setPassword] = useState('1qazxsw2!QAZ');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showResendButton, setShowResendButton] = useState(false);

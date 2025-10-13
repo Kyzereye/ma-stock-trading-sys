@@ -31,6 +31,16 @@ class MASignal:
     trailing_stop: Optional[float] = None
 
 @dataclass
+class MeanReversionAlert:
+    """Mean reversion alert (not a trade signal)"""
+    date: datetime
+    price: float
+    ma_21: float
+    distance_percent: float
+    reasoning: str
+    trailing_stop: Optional[float] = None
+
+@dataclass
 class MATrade:
     """Moving Average trade record"""
     entry_date: datetime
@@ -56,6 +66,7 @@ class MAResults:
     total_days: int
     trades: List[MATrade]
     signals: List[MASignal]
+    mean_reversion_alerts: List[MeanReversionAlert]
     performance_metrics: Dict
     equity_curve: List[Tuple[datetime, float]]
 
@@ -70,11 +81,13 @@ class MATradingEngine:
     - Supports both EMA and SMA
     """
     
-    def __init__(self, initial_capital: float = 100000, atr_period: int = 14, atr_multiplier: float = 2.0, ma_type: str = 'ema', custom_fast_ma: Optional[int] = None, custom_slow_ma: Optional[int] = None):
+    def __init__(self, initial_capital: float = 100000, atr_period: int = 14, atr_multiplier: float = 2.0, ma_type: str = 'ema', custom_fast_ma: Optional[int] = None, custom_slow_ma: Optional[int] = None, mean_reversion_threshold: float = 10.0, position_sizing_percentage: float = 5.0):
         self.initial_capital = initial_capital
         self.atr_period = atr_period
         self.atr_multiplier = atr_multiplier
         self.ma_type = ma_type.lower()  # 'ema' or 'sma'
+        self.mean_reversion_threshold = mean_reversion_threshold
+        self.position_sizing_percentage = position_sizing_percentage
         
         # Set MA periods - use custom values if provided, otherwise defaults
         if custom_fast_ma and custom_slow_ma:
@@ -145,11 +158,19 @@ class MATradingEngine:
         # Execute trades
         trades = self._execute_trades(df, signals)
         
+        # Generate mean reversion alerts (only during active trades)
+        mean_reversion_alerts = self._generate_mean_reversion_alerts(df, trades)
+        
         # Calculate performance metrics
         performance_metrics = self._calculate_performance_metrics(trades)
         
         # Generate equity curve
         equity_curve = self._generate_equity_curve(df, trades)
+        
+        # Sort data by date (newest first) for better user experience
+        trades.sort(key=lambda x: x.entry_date, reverse=True)
+        signals.sort(key=lambda x: x.date, reverse=True)
+        mean_reversion_alerts.sort(key=lambda x: x.date, reverse=True)
         
         return MAResults(
             symbol=symbol,
@@ -158,6 +179,7 @@ class MATradingEngine:
             total_days=len(df),
             trades=trades,
             signals=signals,
+            mean_reversion_alerts=mean_reversion_alerts,
             performance_metrics=performance_metrics,
             equity_curve=equity_curve
         )
@@ -289,6 +311,75 @@ class MATradingEngine:
         
         return signals
     
+    def _generate_mean_reversion_alerts(self, df: pd.DataFrame, trades: List[MATrade]) -> List[MeanReversionAlert]:
+        """Generate mean reversion alerts when price first crosses above 21-MA threshold during active trades.
+        Alerts reset when price drops to 50% of the peak distance reached during the alert period."""
+        alerts = []
+        
+        # Create a set of dates when we're in a trade
+        trade_dates = set()
+        for trade in trades:
+            if trade.entry_date and trade.exit_date:
+                # Add all dates between entry and exit
+                current_date = trade.entry_date
+                while current_date <= trade.exit_date:
+                    trade_dates.add(current_date.date())
+                    current_date = current_date + pd.Timedelta(days=1)
+            elif trade.entry_date:
+                # If no exit date, add from entry to end of data
+                current_date = trade.entry_date
+                end_date = df.index[-1].date()
+                while current_date <= end_date:
+                    trade_dates.add(current_date.date())
+                    current_date = current_date + pd.Timedelta(days=1)
+        
+        # Track alert state for each trade period
+        alert_triggered = False
+        peak_distance = 0  # Track the peak distance when alert was triggered
+        
+        for date, row in df.iterrows():
+            if pd.isna(row['ma_21']):
+                continue
+                
+            # Only check for alerts when we're in a trade
+            if date.date() not in trade_dates:
+                # Reset alert state when not in a trade
+                alert_triggered = False
+                peak_distance = 0
+                continue
+                
+            current_price = row['close']
+            ma_21 = row['ma_21']
+            
+            # Calculate distance percentage from 21-MA
+            distance_percent = abs(current_price - ma_21) / ma_21 * 100
+            
+            # Check if price is above MA and beyond threshold
+            if current_price > ma_21 and distance_percent >= self.mean_reversion_threshold:
+                # Only alert on first crossing above threshold
+                if not alert_triggered:
+                    reasoning = f"Price {distance_percent:.1f}% above 21-MA during trade - potential mean reversion (overbought)"
+                    alerts.append(MeanReversionAlert(
+                        date=date,
+                        price=current_price,
+                        ma_21=ma_21,
+                        distance_percent=distance_percent,
+                        reasoning=reasoning
+                    ))
+                    alert_triggered = True
+                    peak_distance = distance_percent
+                else:
+                    # Update peak distance if current distance is higher
+                    if distance_percent > peak_distance:
+                        peak_distance = distance_percent
+            else:
+                # Reset alert when price drops to 50% of peak distance
+                if alert_triggered and distance_percent < (peak_distance * 0.5):
+                    alert_triggered = False
+                    peak_distance = 0
+        
+        return alerts
+    
     def _execute_trades(self, df: pd.DataFrame, signals: List[MASignal]) -> List[MATrade]:
         """Execute trades based on signals using next day's open prices with re-entry logic"""
         trades = []
@@ -304,23 +395,25 @@ class MATradingEngine:
                 # Find the next day's open price for entry
                 signal_index = date_to_index.get(signal.date)
                 if signal_index is not None and signal_index + 1 < len(df):
-                    next_day_open = df.iloc[signal_index + 1]['open']
+                    next_day_index = signal_index + 1
+                    next_day_open = df.iloc[next_day_index]['open']
+                    next_day_date = df.index[next_day_index]  # Actual entry date (next trading day)
                     
                     # Determine if this is a re-entry and adjust position size
                     is_reentry = 'Re-entry' in signal.reasoning
                     if is_reentry:
                         reentry_count += 1
-                        # Use 50% of available capital for re-entries
-                        position_capital = available_capital * 0.5
+                        # Use half of position sizing percentage for re-entries
+                        position_capital = available_capital * (self.position_sizing_percentage / 100) * 0.5
                     else:
                         reentry_count = 0
-                        # Use full available capital for primary entries
-                        position_capital = available_capital
+                        # Use position sizing percentage of available capital for primary entries
+                        position_capital = available_capital * (self.position_sizing_percentage / 100)
                     
                     shares = int(position_capital / next_day_open)
                     if shares > 0:
                         current_position = {
-                            'entry_date': signal.date,
+                            'entry_date': next_day_date,  # Actual entry date (next day)
                             'entry_price': next_day_open,
                             'entry_signal': signal.reasoning,
                             'shares': shares,
@@ -336,23 +429,25 @@ class MATradingEngine:
                 # Find the next day's open price for exit
                 signal_index = date_to_index.get(signal.date)
                 if signal_index is not None and signal_index + 1 < len(df):
-                    next_day_open = df.iloc[signal_index + 1]['open']
+                    next_day_index = signal_index + 1
+                    next_day_open = df.iloc[next_day_index]['open']
+                    next_day_date = df.index[next_day_index]  # Actual exit date (next trading day)
                     shares = current_position['shares']
                     pnl = shares * (next_day_open - current_position['entry_price'])
                     pnl_percent = (next_day_open - current_position['entry_price']) / current_position['entry_price'] * 100
-                    duration = (signal.date - current_position['entry_date']).days
+                    duration = (next_day_date - current_position['entry_date']).days
                     
                     # Determine exit reason
                     if 'trailing stop' in signal.reasoning.lower():
-                        exit_reason = 'TRAILING_STOP'
+                        exit_reason = 'Trailing Stop'
                     elif 'Major trend break' in signal.reasoning:
-                        exit_reason = 'TREND_BREAK'
+                        exit_reason = 'Trend Break'
                     else:
-                        exit_reason = 'MA_SIGNAL'
+                        exit_reason = 'MA Signal'
                     
                     trade = MATrade(
                         entry_date=current_position['entry_date'],
-                        exit_date=signal.date,
+                        exit_date=next_day_date,  # Actual exit date (next day)
                         entry_price=current_position['entry_price'],
                         exit_price=next_day_open,
                         entry_signal=current_position['entry_signal'],

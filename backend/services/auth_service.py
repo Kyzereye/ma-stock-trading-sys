@@ -200,7 +200,7 @@ class AuthService:
                 """SELECT u.id, u.email, u.password_hash, u.is_active, u.email_verified,
                 u.role_id, r.role_name, r.display_name,
                 p.name, p.default_days, p.default_atr_period, p.default_atr_multiplier,
-                p.default_ma_type, p.default_initial_capital
+                p.default_ma_type, p.default_initial_capital, p.mean_reversion_threshold, p.position_sizing_percentage, p.trades_columns
                 FROM users u
                 LEFT JOIN user_preferences p ON u.id = p.user_id
                 LEFT JOIN roles r ON u.role_id = r.id
@@ -230,10 +230,13 @@ class AuthService:
                 default_atr_multiplier = user['default_atr_multiplier']
                 default_ma_type = user['default_ma_type']
                 default_initial_capital = user['default_initial_capital']
+                mean_reversion_threshold = user['mean_reversion_threshold']
+                position_sizing_percentage = user['position_sizing_percentage']
+                trades_columns = user['trades_columns']
             else:
                 user_id, user_email, password_hash, is_active, email_verified, role_id, role_name, role_display_name, \
                     name, default_days, default_atr_period, default_atr_multiplier, default_ma_type, \
-                    default_initial_capital = user
+                    default_initial_capital, mean_reversion_threshold, position_sizing_percentage, trades_columns = user
             
             if not is_active:
                 cursor.close()
@@ -275,7 +278,14 @@ class AuthService:
                     'default_atr_period': default_atr_period,
                     'default_atr_multiplier': float(default_atr_multiplier) if default_atr_multiplier else 2.0,
                     'default_ma_type': default_ma_type,
-                    'default_initial_capital': float(default_initial_capital) if default_initial_capital else 100000.0
+                    'default_initial_capital': float(default_initial_capital) if default_initial_capital else 100000.0,
+                    'mean_reversion_threshold': float(mean_reversion_threshold) if mean_reversion_threshold else 10.0,
+                    'position_sizing_percentage': float(position_sizing_percentage) if position_sizing_percentage else 5.0,
+                    'trades_columns': trades_columns if trades_columns else {
+                        "entry_date": True, "exit_date": True, "entry_price": True, "exit_price": True,
+                        "exit_reason": True, "shares": True, "pnl": True, "pnl_percent": True,
+                        "running_pnl": True, "running_capital": True, "drawdown": True, "duration": True
+                    }
                 }
             }
             
@@ -324,6 +334,7 @@ class AuthService:
     def update_user_preferences(user_id: int, preferences: Dict) -> Tuple[bool, str]:
         """Update user preferences"""
         try:
+            logger.info(f"Updating preferences for user_id: {user_id}, preferences: {preferences}")
             conn = get_db_connection()
             conn.connect()
             cursor = conn.connection.cursor()
@@ -349,6 +360,29 @@ class AuthService:
             if 'default_initial_capital' in preferences:
                 update_fields.append("default_initial_capital = %s")
                 values.append(preferences['default_initial_capital'])
+            if 'mean_reversion_threshold' in preferences:
+                update_fields.append("mean_reversion_threshold = %s")
+                values.append(preferences['mean_reversion_threshold'])
+            if 'position_sizing_percentage' in preferences:
+                update_fields.append("position_sizing_percentage = %s")
+                values.append(preferences['position_sizing_percentage'])
+            if 'trades_columns' in preferences:
+                import json
+                try:
+                    # Ensure trades_columns is a valid dict
+                    trades_columns = preferences['trades_columns']
+                    if not isinstance(trades_columns, dict):
+                        logger.warning(f"Invalid trades_columns type: {type(trades_columns)}")
+                        trades_columns = {
+                            "entry_date": True, "exit_date": True, "entry_price": True, "exit_price": True,
+                            "exit_reason": True, "shares": True, "pnl": True, "pnl_percent": True,
+                            "running_pnl": True, "running_capital": True, "drawdown": True, "duration": True
+                        }
+                    update_fields.append("trades_columns = %s")
+                    values.append(json.dumps(trades_columns))
+                except Exception as e:
+                    logger.error(f"Error processing trades_columns: {e}")
+                    # Skip trades_columns if there's an error
             
             if not update_fields:
                 return (False, "No preferences to update")
@@ -356,8 +390,22 @@ class AuthService:
             values.append(user_id)
             query = f"UPDATE user_preferences SET {', '.join(update_fields)} WHERE user_id = %s"
             
+            logger.info(f"Executing query: {query}")
+            logger.info(f"With values: {values}")
+            
+            # Check if user preferences record exists
+            cursor.execute("SELECT id FROM user_preferences WHERE user_id = %s", (user_id,))
+            if not cursor.fetchone():
+                logger.info(f"Creating new user_preferences record for user_id: {user_id}")
+                # Create a new record with default values
+                cursor.execute("""
+                    INSERT INTO user_preferences (user_id, name, default_days, default_atr_period, 
+                    default_atr_multiplier, default_ma_type, default_initial_capital, mean_reversion_threshold, position_sizing_percentage)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (user_id, 'User', 365, 14, 2.0, 'ema', 100000.0, 10.0, 5.0))
+            
             cursor.execute(query, values)
-            conn.connection.commit()
+            # Don't commit since autocommit is enabled
             cursor.close()
             conn.connection.close()
             
@@ -366,6 +414,8 @@ class AuthService:
             
         except Exception as e:
             logger.error(f"Error updating user preferences: {e}")
+            logger.error(f"Query was: {query if 'query' in locals() else 'Not defined'}")
+            logger.error(f"Values were: {values if 'values' in locals() else 'Not defined'}")
             return (False, f"Failed to update preferences: {str(e)}")
     
     @staticmethod

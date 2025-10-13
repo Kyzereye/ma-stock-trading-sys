@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import {
   Dialog,
   DialogTitle,
@@ -18,9 +19,10 @@ import {
   Tabs,
   Tab,
   Chip,
-  InputAdornment
+  InputAdornment,
+  Checkbox,
+  FormControlLabel
 } from '@mui/material';
-import { useAuth } from '../contexts/AuthContext';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:2222';
 
@@ -56,7 +58,7 @@ function TabPanel(props: TabPanelProps) {
 }
 
 const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
-  const { user, token } = useAuth();
+  const { user, token, refreshUser } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -76,6 +78,13 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
   const [defaultAtrMultiplier, setDefaultAtrMultiplier] = useState(user?.preferences.default_atr_multiplier || 2.0);
   const [defaultMaType, setDefaultMaType] = useState(user?.preferences.default_ma_type || 'ema');
   const [defaultInitialCapital, setDefaultInitialCapital] = useState(user?.preferences.default_initial_capital || 100000);
+  const [meanReversionThreshold, setMeanReversionThreshold] = useState(user?.preferences.mean_reversion_threshold || 10.0);
+  const [positionSizingPercentage, setPositionSizingPercentage] = useState(user?.preferences.position_sizing_percentage || 5.0);
+  const [tradesColumns, setTradesColumns] = useState(user?.preferences.trades_columns || {
+    entry_date: true, exit_date: true, entry_price: true, exit_price: true,
+    exit_reason: true, shares: true, pnl: true, pnl_percent: true,
+    running_pnl: true, running_capital: true, drawdown: true, duration: true
+  });
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -163,49 +172,69 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
     setLoading(false);
   };
 
-  const handleUpdatePreferences = async () => {
+  const handleUpdatePreferences = async (customTradesColumns?: any) => {
     setLoading(true);
     setMessage(null);
 
     try {
+      // Check if customTradesColumns is an event object and filter it out
+      const validTradesColumns = customTradesColumns && 
+        typeof customTradesColumns === 'object' && 
+        !customTradesColumns.nativeEvent ? customTradesColumns : undefined;
+      
+      const requestData = {
+        default_days: defaultDays,
+        default_atr_period: defaultAtrPeriod,
+        default_atr_multiplier: defaultAtrMultiplier,
+        default_ma_type: defaultMaType,
+        default_initial_capital: defaultInitialCapital,
+        mean_reversion_threshold: meanReversionThreshold,
+        position_sizing_percentage: positionSizingPercentage,
+        ...(validTradesColumns && { trades_columns: validTradesColumns })
+      };
+      
+      console.log('Sending to backend:', requestData);
+      
       const response = await fetch(`${API_URL}/api/auth/preferences`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          default_days: defaultDays,
-          default_atr_period: defaultAtrPeriod,
-          default_atr_multiplier: defaultAtrMultiplier,
-          default_ma_type: defaultMaType,
-          default_initial_capital: defaultInitialCapital
-        })
+        body: JSON.stringify(requestData)
       });
 
       const data = await response.json();
+      console.log('Backend response:', data);
+      console.log('Response status:', response.status);
+      console.log('data.success:', data.success);
+      console.log('typeof data.success:', typeof data.success);
 
-      if (data.success) {
+      if (data.success === true || data.success === 'true') {
         setMessage({ type: 'success', text: 'Preferences saved successfully!' });
         
-        // Update user data in localStorage
+        // Update user data in localStorage with the actual data that was sent
         const storedUser = localStorage.getItem('user');
         if (storedUser) {
           const userData = JSON.parse(storedUser);
           userData.preferences = {
-            default_days: defaultDays,
-            default_atr_period: defaultAtrPeriod,
-            default_atr_multiplier: defaultAtrMultiplier,
-            default_ma_type: defaultMaType,
-            default_initial_capital: defaultInitialCapital
+            ...userData.preferences, // Keep existing preferences
+            default_days: requestData.default_days,
+            default_atr_period: requestData.default_atr_period,
+            default_atr_multiplier: requestData.default_atr_multiplier,
+            default_ma_type: requestData.default_ma_type,
+            default_initial_capital: requestData.default_initial_capital,
+            mean_reversion_threshold: requestData.mean_reversion_threshold,
+            position_sizing_percentage: requestData.position_sizing_percentage,
+            ...(requestData.trades_columns && { trades_columns: requestData.trades_columns })
           };
           localStorage.setItem('user', JSON.stringify(userData));
+          console.log('Updated localStorage:', userData.preferences);
+          // Refresh the user context to update all components
+          refreshUser();
         }
         
-        // Reload page to refresh context
-        setTimeout(() => {
-          window.location.reload();
-        }, 500);
+        // No need to reload page since we're refreshing the user context
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to save preferences' });
       }
@@ -229,6 +258,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
         <Tab label="Account" />
         <Tab label="Password" />
         <Tab label="Trading Preferences" />
+        <Tab label="Column Preferences" />
       </Tabs>
 
       <DialogContent>
@@ -392,6 +422,50 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
             }}
           />
 
+          <Box sx={{ mb: 3 }}>
+            <Typography gutterBottom>
+              Mean Reversion Threshold: {meanReversionThreshold}%
+            </Typography>
+            <Slider
+              value={meanReversionThreshold}
+              onChange={(e, value) => setMeanReversionThreshold(value as number)}
+              min={3}
+              max={15}
+              step={0.5}
+              marks={[
+                { value: 3, label: '3%' },
+                { value: 7, label: '7%' },
+                { value: 10, label: '10%' },
+                { value: 15, label: '15%' }
+              ]}
+              valueLabelDisplay="auto"
+            />
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <Typography gutterBottom>
+              Position Sizing: {positionSizingPercentage}% of capital per trade
+            </Typography>
+            <Slider
+              value={positionSizingPercentage}
+              onChange={(e, value) => setPositionSizingPercentage(value as number)}
+              min={1}
+              max={20}
+              step={0.5}
+              marks={[
+                { value: 1, label: '1%' },
+                { value: 5, label: '5%' },
+                { value: 10, label: '10%' },
+                { value: 15, label: '15%' },
+                { value: 20, label: '20%' }
+              ]}
+              valueLabelDisplay="auto"
+            />
+            <Typography variant="caption" color="text.secondary">
+              Recommended: 1-5% for conservative, 5-10% for moderate, 10-20% for aggressive
+            </Typography>
+          </Box>
+
           <Box sx={{ mt: 3 }}>
             <Button
               variant="contained"
@@ -399,6 +473,47 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
               disabled={loading}
             >
               Save Preferences
+            </Button>
+          </Box>
+        </TabPanel>
+
+        {/* Column Preferences Tab */}
+        <TabPanel value={tabValue} index={3}>
+          <Typography variant="h6" gutterBottom>
+            Trades Table Column Preferences
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Select which columns to display in the trades table. Click "Save Column Preferences" when done.
+          </Typography>
+          
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2 }}>
+            {Object.entries(tradesColumns).map(([key, value]) => (
+              <FormControlLabel
+                key={key}
+                control={
+                  <Checkbox
+                    checked={value}
+                    onChange={(e) => {
+                      const newColumns = { ...tradesColumns, [key]: e.target.checked };
+                      setTradesColumns(newColumns);
+                    }}
+                  />
+                }
+                label={key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+              />
+            ))}
+          </Box>
+          
+          <Box sx={{ mt: 3 }}>
+            <Button
+              variant="contained"
+              onClick={() => {
+                console.log('tradesColumns state:', tradesColumns);
+                handleUpdatePreferences(tradesColumns);
+              }}
+              disabled={loading}
+            >
+              Save Column Preferences
             </Button>
           </Box>
         </TabPanel>

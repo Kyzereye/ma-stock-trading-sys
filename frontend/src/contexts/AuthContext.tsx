@@ -14,6 +14,22 @@ interface User {
     default_atr_multiplier: number;
     default_ma_type: string;
     default_initial_capital: number;
+    mean_reversion_threshold: number; // Mean reversion threshold for alerts
+    position_sizing_percentage: number; // Position sizing percentage (e.g., 5% of capital)
+    trades_columns: {
+      entry_date: boolean;
+      exit_date: boolean;
+      entry_price: boolean;
+      exit_price: boolean;
+      exit_reason: boolean;
+      shares: boolean;
+      pnl: boolean;
+      pnl_percent: boolean;
+      running_pnl: boolean;
+      running_capital: boolean;
+      drawdown: boolean;
+      duration: boolean;
+    };
   };
 }
 
@@ -23,6 +39,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (email: string, password: string, name: string) => Promise<{ success: boolean; error?: string; message?: string }>;
   logout: () => void;
+  refreshUser: () => void;
   isAuthenticated: boolean;
 }
 
@@ -99,6 +116,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('user');
   };
 
+  const refreshUser = () => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -107,6 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         register,
         logout,
+        refreshUser,
         isAuthenticated: !!token,
       }}
     >
