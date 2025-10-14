@@ -20,6 +20,7 @@ sys.path.append(backend_dir)
 
 from stock_scraper import StockDataScraper
 from utils.database import get_db_connection
+from utils.performance_analyzer import analyze_and_store_performance
 
 def get_last_update_date(symbol_id, db):
     """Get the last date we have data for a symbol"""
@@ -181,6 +182,29 @@ def main():
         print(f"\n🗄️  Updating database...")
         total_updated = update_database_data(stock_data, db)
         print(f"✅ Database updated: {total_updated} total rows affected")
+        
+        # Update performance metrics for all symbols
+        print(f"\n📊 Updating performance metrics...")
+        analysis_params = {
+            'initial_capital': 100000,
+            'atr_period': 14,
+            'atr_multiplier': 2.0,
+            'ma_type': 'ema',
+            'position_sizing_percentage': 5.0,
+            'days': 365
+        }
+        
+        analysis_success_count = 0
+        for symbol, df in stock_data.items():
+            if df is not None and not df.empty:
+                try:
+                    success = analyze_and_store_performance(symbol, df, analysis_params)
+                    if success:
+                        analysis_success_count += 1
+                except Exception as e:
+                    print(f"  ⚠️  Performance analysis failed for {symbol}: {e}")
+        
+        print(f"✅ Performance metrics updated: {analysis_success_count}/{len(stock_data)} symbols")
         
         # Update CSV files (overwrites existing)
         update_csv_files(stock_data, scraper)

@@ -21,6 +21,7 @@ sys.path.append(backend_dir)
 
 from stock_scraper import StockDataScraper
 from utils.database import get_db_connection
+from utils.performance_analyzer import analyze_and_store_performance
 
 def fetch_3year_data():
     """Fetch 3 years of historical data for all symbols"""
@@ -94,6 +95,22 @@ def fetch_3year_data():
                 print(f"  💾 Storing in database...")
                 stored_count = store_data_in_database(df, symbol_id, db)
                 print(f"  ✅ Stored {stored_count} records in database")
+                
+                # Analyze performance and store metrics
+                print(f"  📊 Analyzing performance...")
+                analysis_params = {
+                    'initial_capital': 100000,
+                    'atr_period': 14,
+                    'atr_multiplier': 2.0,
+                    'ma_type': 'ema',
+                    'position_sizing_percentage': 5.0,
+                    'days': 365
+                }
+                analysis_success = analyze_and_store_performance(symbol, df, analysis_params)
+                if analysis_success:
+                    print(f"  ✅ Performance analysis completed")
+                else:
+                    print(f"  ⚠️  Performance analysis failed (insufficient data)")
                 
                 # Update CSV file
                 print(f"  📄 Updating CSV file...")

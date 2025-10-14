@@ -193,7 +193,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
         ...(validTradesColumns && { trades_columns: validTradesColumns })
       };
       
-      console.log('Sending to backend:', requestData);
       
       const response = await fetch(`${API_URL}/api/auth/preferences`, {
         method: 'PUT',
@@ -205,10 +204,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
       });
 
       const data = await response.json();
-      console.log('Backend response:', data);
-      console.log('Response status:', response.status);
-      console.log('data.success:', data.success);
-      console.log('typeof data.success:', typeof data.success);
 
       if (data.success === true || data.success === 'true') {
         setMessage({ type: 'success', text: 'Preferences saved successfully!' });
@@ -229,7 +224,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
             ...(requestData.trades_columns && { trades_columns: requestData.trades_columns })
           };
           localStorage.setItem('user', JSON.stringify(userData));
-          console.log('Updated localStorage:', userData.preferences);
           // Refresh the user context to update all components
           refreshUser();
         }
@@ -508,7 +502,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ open, onClose }) => {
             <Button
               variant="contained"
               onClick={() => {
-                console.log('tradesColumns state:', tradesColumns);
                 handleUpdatePreferences(tradesColumns);
               }}
               disabled={loading}

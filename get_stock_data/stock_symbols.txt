@@ -1,8 +1,0 @@
-# Stock symbols to fetch data for
-# One symbol per line, lines starting with # are comments
-A
-AAPL
-GOOGL
-MSFT
-TSLA
-DOMO

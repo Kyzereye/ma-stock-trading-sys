@@ -1,5 +1,6 @@
 
 -- Drop tables if they exist (in reverse order due to foreign key constraints)
+DROP TABLE IF EXISTS stock_performance_metrics;
 DROP TABLE IF EXISTS user_preferences;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS roles;
@@ -87,6 +88,26 @@ CREATE TABLE IF NOT EXISTS daily_stock_data (
     INDEX idx_symbol_date (symbol_id, date)
 );
 
+-- Table 3: Pre-computed Stock Performance Metrics
+CREATE TABLE IF NOT EXISTS stock_performance_metrics (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    symbol_id INT NOT NULL,
+    analysis_date DATE NOT NULL,
+    total_return_pct DECIMAL(8,2),
+    total_pnl DECIMAL(15,2),
+    win_rate DECIMAL(5,2),
+    total_trades INT,
+    sharpe_ratio DECIMAL(8,2),
+    analysis_params JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (symbol_id) REFERENCES stock_symbols(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_symbol_analysis_date (symbol_id, analysis_date),
+    INDEX idx_symbol_analysis_date (symbol_id, analysis_date),
+    INDEX idx_analysis_date (analysis_date),
+    INDEX idx_total_return (total_return_pct),
+    INDEX idx_sharpe_ratio (sharpe_ratio)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Insert stock symbols
 INSERT IGNORE INTO stock_symbols (symbol, company_name) VALUES
@@ -162,7 +183,6 @@ INSERT IGNORE INTO stock_symbols (symbol, company_name) VALUES
 ('FCEL', 'FuelCell Energy Inc.'),
 ('FIVN', 'Five9 Inc.'),
 ('FLO', 'Flower Foods Corp.'),
-('FSTO', 'Fastly Inc.'),
 ('FSTR', 'L.B. Foster Company'),
 ('FTEK', 'Fuel Tech Inc.'),
 ('GOOGL', 'Alphabet Inc. Class A'),

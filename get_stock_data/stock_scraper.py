@@ -16,35 +16,6 @@ class StockDataScraper:
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
     
-    def load_symbols_from_file(self, filename="stock_symbols.txt"):
-        """
-        Load stock symbols from a text file
-        
-        Args:
-            filename (str): Path to file containing stock symbols
-            
-        Returns:
-            list: List of stock symbols
-        """
-        symbols = []
-        
-        try:
-            with open(filename, 'r') as file:
-                for line in file:
-                    line = line.strip()
-                    # Skip empty lines and comments
-                    if line and not line.startswith('#'):
-                        symbols.append(line.upper())
-            
-            print(f"Loaded {len(symbols)} symbols from {filename}: {', '.join(symbols)}")
-            return symbols
-            
-        except FileNotFoundError:
-            print(f"Error: Could not find {filename}")
-            return []
-        except Exception as e:
-            print(f"Error reading {filename}: {e}")
-            return []
         
     def get_stock_data(self, symbol, period='1y'):
         """
@@ -346,10 +317,3 @@ def main():
         # Save combined file
         scraper.save_multiple_to_csv(stock_data, individual_files=False, combined_file="portfolio_1year.csv")
         
-        print(f"\n✅ Successfully retrieved 1 year of data for {len(stock_data)} stocks!")
-        print(f"Files saved to: {scraper.output_dir}/ directory")
-    else:
-        print("Failed to retrieve data")
-
-if __name__ == "__main__":
-    main()
